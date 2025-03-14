@@ -5,14 +5,14 @@ type uop =
 type bop =
   | Add
   | Sub
-  | Mul
+  | Mult
   | Div
   | Lt
   | Leq
   | Gt
   | Geq
-  | Neq
   | Eq
+  | Neq
   | And
   | Or
   | Mod
@@ -22,10 +22,11 @@ type expr =
  | Int of int
  | Bool of bool
  | Binop of bop * expr * expr
- | Let of string * expr * expr
+ | Unop of uop * expr
 
 type stmt =
  | Assign of string * expr
+ | Let of string * expr * stmt
  | If of expr * stmt * stmt
  | While of expr * stmt
  | Print of expr
