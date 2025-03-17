@@ -1,3 +1,5 @@
+(* Uses Menhir to compile to a proper parser *)
+
 %{
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
@@ -14,10 +16,10 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO IN LET ASSIGN
+%token IF THEN ELSE PRINT WHILE DO LET IN ASSIGN
 
 (* Tokens for logical operators *)
-%token AND OR NOT NEG
+%token AND OR NOT
 
 (* Tokens for arithmetic operators *)
 %token PLUS MINUS MULT DIV MOD
@@ -35,11 +37,11 @@
 %nonassoc ELSE          (* 'else' has low precedence to handle the dangling else problem *)
 %left OR                (* 'or' is left-associative: a or b or c = (a or b) or c *)
 %left AND               (* 'and' is left-associative and has higher precedence than 'or' *)
-%left LT LEQ GT GEQ EQ NEQ  (* Comparison operators are left-associative *)
+%nonassoc LT LEQ GT GEQ EQ NEQ  (* Comparison operators are non-associative *)
 %left PLUS MINUS        (* Arithmetic + and - are left-associative *)
 %left MULT DIV MOD      (* Arithmetic *, /, % have higher precedence than + and - *)
 %right NOT              (* 'not' is right-associative: not not a = not (not a) *)
-%nonassoc NEG           (* Unary negation has highest precedence *)
+%nonassoc UMINUS           (* Unary negation has highest precedence *)
 
 (* Start symbol declaration - specifies the entry point of the grammar *)
 (* The type annotation specifies what type the start symbol produces *)
@@ -55,25 +57,25 @@ main:
 
 (* Expression rules - define how expressions are parsed *)
 expr:
-  | x = ID                      { Var x }                 (* Variable reference *)
-  | i = INT                     { Int i }                 (* Integer literal *)
-  | b = BOOL                    { Bool b }                (* Boolean literal *)
-  | e1 = expr; PLUS;  e2 = expr { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
-  | e1 = expr; MINUS; e2 = expr { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
-  | e1 = expr; MULT;  e2 = expr { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
-  | e1 = expr; DIV;   e2 = expr { Binop (Div, e1, e2) }   (* Division: e1 / e2 *)
-  | e1 = expr; LT;    e2 = expr { Binop (Lt, e1, e2) }    (* Less than: e1 < e2 *)
-  | e1 = expr; LEQ;   e2 = expr { Binop (Leq, e1, e2) }   (* Less than or equal: e1 <= e2 *)
-  | e1 = expr; GT;    e2 = expr { Binop (Gt, e1, e2) }    (* Greater than: e1 > e2 *)
-  | e1 = expr; GEQ;   e2 = expr { Binop (Geq, e1, e2) }   (* Greater than or equal: e1 >= e2 *)
-  | e1 = expr; EQ;    e2 = expr { Binop (Eq, e1, e2) }    (* Equality: e1 == e2 *)
-  | e1 = expr; NEQ;   e2 = expr { Binop (Neq, e1, e2) }   (* Inequality: e1 != e2 *)
-  | e1 = expr; AND;   e2 = expr { Binop (And, e1, e2) }   (* Logical AND: e1 and e2 *)
-  | e1 = expr; OR;    e2 = expr { Binop (Or, e1, e2) }    (* Logical OR: e1 or e2 *)
-  | e1 = expr; MOD;   e2 = expr { Binop (Mod, e1, e2) }   (* Modulo: e1 % e2 *)
-  | NOT; e = expr               { Unop (Not, e) }         (* Logical NOT: not e *)
-  | NEG; e = expr               { Unop (Neg, e) }         (* Unary negation: -e *)
-  | LPAREN; e = expr; RPAREN    { e }                     (* Parenthesized expression: (e) *)
+  | x = ID                       { Var x }                 (* Variable reference *)
+  | i = INT                      { Int i }                 (* Integer literal *)
+  | b = BOOL                     { Bool b }                (* Boolean literal *)
+  | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
+  | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
+  | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
+  | e1 = expr; DIV;   e2 = expr  { Binop (Div, e1, e2) }   (* Division: e1 / e2 *)
+  | e1 = expr; LT;    e2 = expr  { Binop (Lt, e1, e2) }    (* Less than: e1 < e2 *)
+  | e1 = expr; LEQ;   e2 = expr  { Binop (Leq, e1, e2) }   (* Less than or equal: e1 <= e2 *)
+  | e1 = expr; GT;    e2 = expr  { Binop (Gt, e1, e2) }    (* Greater than: e1 > e2 *)
+  | e1 = expr; GEQ;   e2 = expr  { Binop (Geq, e1, e2) }   (* Greater than or equal: e1 >= e2 *)
+  | e1 = expr; EQ;    e2 = expr  { Binop (Eq, e1, e2) }    (* Equality: e1 == e2 *)
+  | e1 = expr; NEQ;   e2 = expr  { Binop (Neq, e1, e2) }   (* Inequality: e1 != e2 *)
+  | e1 = expr; AND;   e2 = expr  { Binop (And, e1, e2) }   (* Logical AND: e1 and e2 *)
+  | e1 = expr; OR;    e2 = expr  { Binop (Or, e1, e2) }    (* Logical OR: e1 or e2 *)
+  | e1 = expr; MOD;   e2 = expr  { Binop (Mod, e1, e2) }   (* Modulo: e1 % e2 *)
+  | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
+  | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
+  | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
   ;
 
 (* Statement rules - define how statements are parsed *)
