@@ -1,4 +1,4 @@
 (executable
  (public_name Competitive_Programming)
  (name main)
- (libraries Competitive_Programming))
+ (libraries competitive_programming))

@@ -1,0 +1,11 @@
+lib: [
+  "_build/install/default/lib/Competitive_Programming/META"
+  "_build/install/default/lib/Competitive_Programming/dune-package"
+  "_build/install/default/lib/Competitive_Programming/opam"
+]
+bin: [
+  "_build/install/default/bin/Competitive_Programming"
+]
+doc: [
+  "_build/install/default/doc/Competitive_Programming/README.md"
+]
