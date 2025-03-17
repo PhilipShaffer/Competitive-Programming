@@ -9,6 +9,7 @@
 
 (* Definitions of regular expressions for different types of tokens *)
 let white  = [' ' '\t']+        (* Whitespace characters *)
+let newline = '\n'              (* Newline character *)
 let digit  = ['0'-'9']          (* Digits *)
 let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
 let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
@@ -18,6 +19,7 @@ let id     = letter+            (* Identifiers *)
 rule read =
   parse
   | white   { read lexbuf }  (* Ignore whitespace *)
+  | newline { Lexing.new_line lexbuf; read lexbuf }  (* Ignore newlines *)
   | "true"  { BOOL true }  (* Boolean literal true *)
   | "false" { BOOL false }  (* Boolean literal false *)
   | "if"    { IF }  (* If keyword *)
