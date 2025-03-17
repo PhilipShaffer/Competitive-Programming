@@ -70,10 +70,19 @@ let parse (s : string) : Ast.stmt =
       Printf.eprintf "Unexpected error: %s\n" (Printexc.to_string e);
       exit 1
 
+(* Function to read a file *)
+let read_file filename =
+  let channel = open_in filename in
+  let content = really_input_string channel (in_channel_length channel) in
+  close_in channel;
+  content
+
 let () =
-  let test_program = "let x = 5 in print x" in
-  Printf.printf "Parsing program: %s\n" test_program;
-  print_tokens test_program;
-  let ast = parse test_program in
+  let filename = Sys.argv.(1) in
+  let program = read_file filename in
+  Printf.printf "Reading program from file: %s\n" filename;
+  Printf.printf "Program contents:\n%s\n" program;
+  print_tokens program;
+  let ast = parse program in
   print_endline "Parsing successful!";
   Interpreter.interpret ast;
