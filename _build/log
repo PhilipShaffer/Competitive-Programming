@@ -1,0 +1,6 @@
+# dune init proj Competitive_Programming .
+# OCAMLPARAM: unset
+# Shared cache: enabled-except-user-rules
+# Shared cache location: /Users/kevinpedersen/.cache/dune/db
+# Workspace root: /Users/kevinpedersen/Documents/GitHub/Competitive-Programming
+# Auto-detected concurrency: 8
