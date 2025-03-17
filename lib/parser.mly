@@ -52,7 +52,7 @@
 
 (* The main rule - entry point of the parser *)
 main:
-  | s = stmt; EOF { s }  (* Parse a statement followed by EOF, return the statement *)
+  | sl = stmt_list; EOF { Block sl }  (* Parse a statement followed by EOF, return the statement *)
   ;
 
 (* Expression rules - define how expressions are parsed *)
@@ -80,12 +80,13 @@ expr:
 
 (* Statement rules - define how statements are parsed *)
 stmt:
-  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }   (* Assignment: x = e *)
-  | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }   (* Let binding: let x = e in s *)
-  | IF;     e = expr; THEN;   s1 = stmt; ELSE; s2 = stmt  { If (e, s1, s2) }  (* Conditional: if e then s1 else s2 *)
-  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }    (* Loop: while e do s *)
-  | PRINT;  e = expr                                      { Print e }         (* Print statement: print e *)
-  | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }        (* Block: { s1; s2; ...; sn; } *)
+  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
+  | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)
+  | IF;     e = expr; THEN;   s1 = stmt; ELSE; s2 = stmt  { If (e, s1, s2) }        (* Conditional: if e then s1 else s2 *)
+  | IF;     e = expr; THEN;   s = stmt;                   { If (e, s, Block []) }   (* Conditional: if e then s *)
+  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)
+  | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
+  | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)
