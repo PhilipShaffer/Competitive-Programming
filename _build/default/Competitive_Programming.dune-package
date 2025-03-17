@@ -1,7 +1,0 @@
-(lang dune 3.17)
-(name Competitive_Programming)
-(sections (lib .) (bin ../../bin) (doc ../../doc/Competitive_Programming))
-(files
- (lib (META dune-package opam))
- (bin (Competitive_Programming))
- (doc (README.md)))

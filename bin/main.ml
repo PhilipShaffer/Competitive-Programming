@@ -74,5 +74,6 @@ let () =
   let test_program = "let x = 5 in print x" in
   Printf.printf "Parsing program: %s\n" test_program;
   print_tokens test_program;
-  let _ = parse test_program in
-  print_endline "Parsing successful!"
+  let ast = parse test_program in
+  print_endline "Parsing successful!";
+  Interpreter.interpret ast;
