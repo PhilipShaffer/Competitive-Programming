@@ -1,7 +1,53 @@
 (* Lexer for while language *)
+(* Uses Ocamllex to compile to a proper lexer *)
 
 {
-  open Parser
-
-  
+  (* This is the header section where OCaml code can be included.
+     It's typically used for imports and helper functions. *)
+  open Parser  (* Import the Parser module to use its tokens *)
 }
+
+(* Definitions of regular expressions for different types of tokens *)
+let white  = [' ' '\t']+        (* Whitespace characters *)
+let digit  = ['0'-'9']          (* Digits *)
+let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
+let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
+let id     = letter+            (* Identifiers *)
+
+(* The main lexer rule - defines how the lexer should process the input *)
+rule read =
+  parse
+  | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
+  | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
+  | white   { read lexbuf }  (* Ignore whitespace *)
+  | "true"  { BOOL true }  (* Boolean literal true *)
+  | "false" { BOOL false }  (* Boolean literal false *)
+  | "+"     { PLUS }  (* Addition operator *)
+  | "-"     { MINUS }  (* Subtraction operator *)
+  | "*"     { TIMES }  (* Multiplication operator *)
+  | "/"     { DIV }  (* Division operator *)
+  | "%"     { MOD }  (* Modulo operator *)
+  | "<"     { LT }  (* Less than operator *)
+  | "<="    { LEQ }  (* Less than or equal operator *)
+  | ">"     { GT }  (* Greater than operator *)
+  | ">="    { GEQ }  (* Greater than or equal operator *)
+  | "=="    { EQ }  (* Equality operator *)
+  | "!="    { NEQ }  (* Inequality operator *)
+  | "and"   { AND }  (* Logical AND operator *)
+  | "or"    { OR }  (* Logical OR operator *)
+  | "not"   { NOT }  (* Logical NOT operator *)
+  | "if"    { IF }  (* If keyword *)
+  | "then"  { THEN }  (* Then keyword *)
+  | "else"  { ELSE }  (* Else keyword *)
+  | "print" { PRINT }  (* Print keyword *)
+  | "while" { WHILE }  (* While keyword *)
+  | "do"    { DO }  (* Do keyword *)
+  | "let"   { LET }  (* Let keyword *)
+  | "in"    { IN }  (* In keyword *)
+  | "="     { ASSIGN }  (* Assignment operator *)
+  | "("     { LPAREN }  (* Left parenthesis *)
+  | ")"     { RPAREN }  (* Right parenthesis *)
+  | "{"     { LBRACE }  (* Left brace *)
+  | "}"     { RBRACE }  (* Right brace *)
+  | ";"     { SEMICOLON }  (* Semicolon *)
+  | eof     { EOF }  (* End-of-file *)
