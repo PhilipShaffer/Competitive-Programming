@@ -31,9 +31,9 @@ type expr =
 
 (* Statements - represent actions or commands *)
 type stmt =
- | Assign of string * expr   (* Assignment: x = e *)
- | Let of string * expr * stmt (* Let binding: let x = e in s *)
- | If of expr * stmt * stmt  (* Conditional: if e then s1 else s2 *)
- | While of expr * stmt      (* Loop: while e do s *)
- | Print of expr             (* Print statement: print e *)
- | Block of stmt list        (* Block of statements: { s1; s2; ...; sn; } *)
+ | Assign of string * expr   (* Assignment: x = expr *)
+ | Let of string * expr * stmt (* Let binding: let x = expr in stmt *)
+ | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)
+ | While of expr * stmt      (* Loop: while expr do stmt *)
+ | Print of expr             (* Print statement: print expr *)
+ | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
