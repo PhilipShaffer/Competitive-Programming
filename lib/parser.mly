@@ -41,7 +41,7 @@
 %left PLUS MINUS        (* Arithmetic + and - are left-associative *)
 %left MULT DIV MOD      (* Arithmetic *, /, % have higher precedence than + and - *)
 %right NOT              (* 'not' is right-associative: not not a = not (not a) *)
-%nonassoc UMINUS           (* Unary negation has highest precedence *)
+%nonassoc UMINUS        (* Unary negation has highest precedence *)
 
 (* Start symbol declaration - specifies the entry point of the grammar *)
 (* The type annotation specifies what type the start symbol produces *)
