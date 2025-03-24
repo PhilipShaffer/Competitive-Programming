@@ -1,0 +1,98 @@
+##########################
+## Samlet bud på syntax ##
+##########################
+
+
+
+### Variable   (vi prøver uden semicolon først)
+int x := 10                                        
+let int x = 10                             (back-up hvis folk ikke forstår  :=)
+
+float y = 10.0
+int z := x / y                             (hvordan casting lige sker vides ikke, men det skal se sådan ud)
+
+
+
+### Functions
+int minimum(int x, int y) := {
+    ...
+}
+
+
+
+### Anonymous function/arrowfunction
+(int x := 3, int y) => {
+    ...
+}
+
+ 
+
+### If
+if (x > 0) {
+    ...
+}
+Else if {
+    ...
+}
+Else {
+    ...
+}
+
+
+
+### While
+While (x < 10) {
+    ...
+}
+
+
+
+### Forloop
+for (i in range(1,n)) {
+    ...
+}
+
+for (item in items) {                       (hvis nemt så gør så foreach bliver oversat til for)
+    ...
+}
+
+items.foreach(item => {
+    ...
+})
+
+
+
+### Arrays
+int array[] = [1,2, ... ]
+int array[5] = [1,2,3,4,5]
+
+
+
+### Structs
+struct Coordinate {
+    int x,
+    int y,
+}
+struct Person {
+    String name,
+    int    age,
+}
+
+
+
+### Enum
+enum Color {RED, BLUE, GREEN}
+
+
+
+### Maps
+(string, int) map scores {
+    "Alice", 94
+    "Peter", 87
+}
+
+map of (string, int) scores {
+    "Alice", 94
+    "Peter", 87
+}
+
