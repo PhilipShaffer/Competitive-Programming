@@ -5,8 +5,7 @@
 
 
 ### Variable   (vi prøver uden semicolon først)
-int x := 10                                        
-let int x = 10                             (back-up hvis folk ikke forstår  :=)
+x : int := 10                                        
 
 float y = 10.0
 int z := x / y                             (hvordan casting lige sker vides ikke, men det skal se sådan ud)
@@ -27,7 +26,7 @@ int minimum(int x, int y) := {
 
  
 
-### If
+### If statment
 if (x > 0) {
     ...
 }
@@ -39,6 +38,8 @@ Else {
 }
 
 
+### If expression
+text : string := if x < 10 then 'very large number' else 'what a small number'
 
 ### While
 While (x < 10) {
@@ -63,19 +64,18 @@ items.foreach(item => {
 
 
 ### Arrays
-int array[] = [1,2, ... ]
-int array[5] = [1,2,3,4,5]
+y : array of int = [1,2,3,4,5]
 
 
 
 ### Structs
 struct Coordinate {
-    int x,
-    int y,
+    x : int,
+    y : int,
 }
 struct Person {
-    String name,
-    int    age,
+    name : String,
+    age  : int,
 }
 
 
@@ -86,13 +86,53 @@ enum Color {RED, BLUE, GREEN}
 
 
 ### Maps
-(string, int) map scores {
+scores : (string, int) map {
     "Alice", 94
     "Peter", 87
 }
 
-map of (string, int) scores {
+scores : map of (string, int)  {
     "Alice", 94
     "Peter", 87
 }
+
+
+
+### Switch-case
+switch (x) {
+    case 1: {
+            print "two"
+            break
+    }
+    
+    case 2: {
+            print "Towards "
+            print way,
+            print " there is "
+            print totaldistance
+            print " kilometers."
+            break
+    }
+    case 3: print "heps, kun et statement"
+    
+    default {
+        print "no case found"
+    }
+}
+
+
+
+### Conditions
+and
+or
+not
+
+
+
+### Standart in 
+
+
+
+### Standart out
+
 
