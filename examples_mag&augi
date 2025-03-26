@@ -1,0 +1,42 @@
+/////
+x : int := readInt() 
+
+calc : int :=(x : int){
+	return (x + 5) * 3 - 10
+}
+
+print("%d", calc(x))
+
+///// Aaah!
+
+// 1
+jon : String := readLine()
+
+doctor : String := readLine()
+
+if(doctor.length > jon.length){
+	print("no")
+}else{
+	print("go")
+}
+
+// 2
+
+jon : string := readLine()
+
+doctor : String := readLine()
+
+for(i in range(1000)){
+	if(jon[i] = 'h' and doctor[i] = 'a'){
+		print("no")
+		break;
+	}elif(jon[i] = 'h' and doctor[i] = 'h'){
+		print("go")
+	}elif(jon[i] = 'a' and doctor[i] = 'h'){
+		print("go")
+	}
+}
+
+/* 
+Overvejelser: Hvordan fungerer strings? Er der komplekse typer? Kan få adgang til indeks i strings? 
+*/
