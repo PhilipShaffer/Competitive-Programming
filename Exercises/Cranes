@@ -1,0 +1,81 @@
+#### input ####
+3
+1 1 4
+4 1 5
+7 4 3
+###############
+### output ###
+3
+5
+3
+##############
+
+struct Crane {
+    x : int,
+    y : int,
+    h : int,
+    jib : int
+}
+
+num_of_cranes : int = readInt()
+
+cranelist : list of Crane = []
+
+for (i in range(num_of_cranes)) {
+    x,y,z = input(int)
+
+    name : string = "Crane" + i.tostring
+
+    Crane name {
+        x: x,
+        y: y,
+        h: h,
+        jib : h,
+    }
+    cranelist.add(name)
+}         // vi har nu Crane0, Crane1, Crane2
+
+
+new_crane_list : list of Crane := cranelist.sort(Crane.h)      // vi har nu Crane2, Crane0, Crane1
+
+
+for (i in range(num_of_cranes-1)) {
+    for (j in range(i, num_of_cranes-1)) {
+        distance : int := (int) math.sqrt( abs(new_cranelist[j].x-new_cranelist[i].x)^2 + abs(new_craneline[j].y-new_cranelist[i].y)^2 )
+
+        if (distance < new_crane_list[i].jib){
+            new_crane_list[i].jib = distance,
+        }
+    }
+}
+
+for gammel_kran in cranelist {
+    for kran in new_crane {
+        if (kran.h = gammel_kran.h) {
+            print(kran.h)
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
