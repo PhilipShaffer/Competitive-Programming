@@ -1,5 +1,6 @@
 (library
- (name competitive_programming))
+ (name competitive_programming)
+ (modules ast lexer parser interpreter mips_codegen))
 
 (menhir
  (modules parser))

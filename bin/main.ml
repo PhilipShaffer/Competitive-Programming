@@ -78,11 +78,47 @@ let read_file filename =
   content
 
 let () =
-  let filename = Sys.argv.(1) in
+  (* Parse command line arguments *)
+  let interpret_mode = ref true in
+  let mips_output = ref None in
+  let source_file = ref None in
+  
+  let spec_list = [
+    ("--mips", Arg.String (fun s -> interpret_mode := false; mips_output := Some s),
+     "Compile to MIPS and save to the specified file");
+  ] in
+
+  let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " [--mips output.s] source_file" in
+  
+  let anon_fun filename =
+    match !source_file with
+    | None -> source_file := Some filename
+    | Some _ -> raise (Arg.Bad "Too many source files provided")
+  in
+  
+  Arg.parse spec_list anon_fun usage_msg;
+  
+  let filename = match !source_file with
+    | None -> failwith "No input file provided"
+    | Some f -> f
+  in
+  
   let program = read_file filename in
   Printf.printf "Reading program from file: %s\n" filename;
   Printf.printf "Program contents:\n%s\n" program;
+  
   print_tokens program;
   let ast = parse program in
   print_endline "Parsing successful!";
-  Interpreter.interpret ast;
+  
+  if !interpret_mode then
+    (* Run the interpreter *)
+    Interpreter.interpret ast
+  else
+    (* Compile to MIPS *)
+    match !mips_output with
+    | None -> failwith "No output file specified for MIPS compilation"
+    | Some output_file ->
+        Printf.printf "Compiling to MIPS, output file: %s\n" output_file;
+        Mips_codegen.compile_to_mips ast output_file;
+        Printf.printf "MIPS code generation complete\n"
