@@ -3,12 +3,12 @@
 ##########################
 
 
-
 ### Variable   (vi prøver uden semicolon først)
 x : int := 10                                        
 
 float y = 10.0
 int z := x / y                             (hvordan casting lige sker vides ikke, men det skal se sådan ud)
+
 
 
 
@@ -47,7 +47,6 @@ While (x < 10) {
 }
 
 
-
 ### Forloop
 for (i in range(1,n)) {
     ...
@@ -63,8 +62,8 @@ items.foreach(item => {
 
 
 
-### Arrays
-y : array of int = [1,2,3,4,5]
+### Lists
+y : list of int = [1,2,3,4,5]
 
 
 
@@ -123,6 +122,11 @@ switch (x) {
 
 
 ### Conditions
+    ## Comparisons
+    if ( x = y)
+    ## AND
+        if ( x = y)
+
 and
 or
 not
@@ -131,8 +135,32 @@ not
 
 ### Standart in 
 
+### input ##
+
+x : int := readInt() 
+
+ostemad := readLine() 
+
+x : float := readFloat() 
+
+x : int := input(int)        # t : "5",
+x,y,z := input(int)     # x : "3", y : "6", z: "2"
+ 
+
+### input_and_convert ###
+t = 3
+x : list of int = input(...t, int)     # x : [ 4 , 8 , "hello"], converts input to string
+
+##input: 
+## 
+
+x : list of string = input(...t, string)     # x : [4,2,"ost"], define type
+
+x = input("#", int)  # Read input as int until the string is read
+
 
 
 ### Standart out
 
+print("Hello: %d", val)
 
