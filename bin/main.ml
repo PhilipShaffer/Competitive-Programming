@@ -85,6 +85,14 @@ module Compiler = struct
     | e ->
         Error (ParseError (Printf.sprintf "Unexpected error: %s" (Printexc.to_string e)))
 
+  (* Get compiler tool paths from environment or use defaults *)
+  let get_tool_path tool default_path =
+    try Sys.getenv (String.uppercase_ascii tool ^ "_PATH")
+    with Not_found -> default_path
+  
+  let llc_path = get_tool_path "llc" "/opt/homebrew/opt/llvm@18/bin/llc"
+  let clang_path = get_tool_path "clang" "clang"
+
   (* Error handling for executing shell commands *)
   let safe_execute cmd =
     Printf.printf "Executing: %s\n" cmd;
@@ -123,14 +131,14 @@ module Compiler = struct
     | Assembly ->
         (match compile_to LLVM_IR output_name ast with
          | Ok llvm_file -> 
-             (match safe_execute (Printf.sprintf "llc %s -o %s.s" llvm_file output_name) with
+             (match safe_execute (Printf.sprintf "%s %s -o %s.s" llc_path llvm_file output_name) with
               | Ok () -> Ok (output_name ^ ".s")
               | Error e -> Error e)
          | Error e -> Error e)
     | Executable ->
         (match compile_to LLVM_IR output_name ast with
          | Ok llvm_file -> 
-             (match safe_execute (Printf.sprintf "clang %s -o %s" llvm_file output_name) with
+             (match safe_execute (Printf.sprintf "%s %s -o %s" clang_path llvm_file output_name) with
               | Ok () -> Ok output_name
               | Error e -> Error e)
          | Error e -> Error e)
