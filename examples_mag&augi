@@ -1,7 +1,7 @@
 /////
 x : int := readInt() 
 
-calc : int :=(x : int){
+calc : int (x : int) := {
 	return (x + 5) * 3 - 10
 }
 
@@ -10,11 +10,11 @@ print("%d", calc(x))
 ///// Aaah!
 
 // 1
-jon : String := readLine()
+jon : string := readLine()
 
-doctor : String := readLine()
+doctor : string := readLine()
 
-if(doctor.length > jon.length){
+if(length(doctor) > length(jon)){
 	print("no")
 }else{
 	print("go")
@@ -24,7 +24,7 @@ if(doctor.length > jon.length){
 
 jon : string := readLine()
 
-doctor : String := readLine()
+doctor : string := readLine()
 
 for(i in range(1000)){
 	if(jon[i] = 'h' and doctor[i] = 'a'){

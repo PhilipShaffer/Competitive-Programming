@@ -17,14 +17,14 @@ struct Crane {
     jib : int
 }
 
-num_of_cranes : int = readInt()
+num_of_cranes : int := readInt()
 
-cranelist : list of Crane = []
+cranelist : list of Crane := []
 
 for (i in range(num_of_cranes)) {
-    x,y,z = input(int)
+    x,y,h := readInts()
 
-    name : string = "Crane" + i.tostring
+    name : string := "Crane${i}"
 
     Crane name {
         x: x,
@@ -41,21 +41,22 @@ new_crane_list : list of Crane := cranelist.sort(Crane.h)      // vi har nu Cran
 
 for (i in range(num_of_cranes-1)) {
     for (j in range(i, num_of_cranes-1)) {
-        distance : int := (int) math.sqrt( abs(new_cranelist[j].x-new_cranelist[i].x)^2 + abs(new_craneline[j].y-new_cranelist[i].y)^2 )
+        distance : int := toInt( sqrt( abs(new_cranelist[j].x-new_cranelist[i].x)^2 + abs(new_cranelist[j].y-new_cranelist[i].y)^2 ) )
 
         if (distance < new_crane_list[i].jib){
-            new_crane_list[i].jib = distance,
+            new_crane_list[i].jib := distance,
         }
     }
 }
 
-for gammel_kran in cranelist {
-    for kran in new_crane {
+foreach (gammel_kran in cranelist) {
+    foreach kran in new_crane {
         if (kran.h = gammel_kran.h) {
             print(kran.h)
         }
     }
 }
+
 
 
 

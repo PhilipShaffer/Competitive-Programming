@@ -67,7 +67,7 @@ int z := x / y                             (hvordan casting lige sker vides ikke
 
 
 ### Functions
-int minimum(int x, int y) := {
+int minimum(x : int, y : int) := {
     ...
 }
 
