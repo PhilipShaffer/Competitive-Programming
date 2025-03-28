@@ -202,8 +202,24 @@ and codegen_stmt = function
     const_int int_type 0
   
   | Print expr ->
-    (* For now, we'll just evaluate and return the expression without actual printing *)
+    (* Evaluate the expression to get the value to print *)
     let value = codegen_expr expr in
+    
+    (* Get the putchar function *)
+    let putchar_type = function_type int_type [| int_type |] in
+    let putchar = declare_function "putchar" putchar_type the_module in
+    
+    (* Convert an integer to its ASCII representation and print it 
+       This is a very minimal version that only prints single digits 0-9 directly *)
+    let digit_to_ascii digit = build_add digit (const_int int_type 48) "ascii" builder in
+    
+    (* Print a single ASCII digit *)
+    ignore (build_call putchar_type putchar [| digit_to_ascii value |] "print" builder);
+    
+    (* Print a newline *)
+    ignore (build_call putchar_type putchar [| const_int int_type 10 |] "newline" builder);
+    
+    (* Return the value that was printed *)
     value
   
   | Block stmts ->
