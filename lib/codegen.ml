@@ -1,6 +1,7 @@
 open Llvm
 open Base
 open Ast
+open Stdio
 
 let context = global_context ()
 let the_module = create_module context "main"
@@ -21,7 +22,7 @@ let rec codegen_expr = function
   | Var name ->
     (* Look up the name in the symbol table *)
     (match Hashtbl.find named_values name with
-     | Some value -> value
+     | Some value -> build_load int_type value name builder  (* Load the value from the alloca *)
      | None -> raise (Failure ("unknown variable name: " ^ name)))
   
   | Int n -> const_int int_type n
@@ -162,7 +163,7 @@ and codegen_stmt = function
     (* Get the updated else block for the phi node *)
     let else_bb = insertion_block builder in
     
-    (* Generate code for the merge block *)
+    (* Generate code for the merge block - position first, then create PHI *)
     position_at_end merge_bb builder;
     
     (* Create a PHI node *)
@@ -201,8 +202,7 @@ and codegen_stmt = function
     const_int int_type 0
   
   | Print expr ->
-    (* For simplicity, we'll just return the expression value without actual printing *)
-    (* In a real implementation, we would connect to the printf C function properly *)
+    (* For now, we'll just evaluate and return the expression without actual printing *)
     let value = codegen_expr expr in
     value
   
@@ -239,8 +239,8 @@ let compile program =
   (* Output the LLVM IR to a file *)
   let output_file = "output.ll" in
   let out_str = Llvm.string_of_llmodule the_module in
-  let oc = Stdlib.open_out output_file in
-  output_string oc out_str;
-  close_out oc;
+  let oc = Out_channel.create output_file in
+  Out_channel.output_string oc out_str;
+  Out_channel.close oc;
   
   the_module
