@@ -67,7 +67,7 @@ int z := x / y                             (hvordan casting lige sker vides ikke
 
 
 ### Functions
-int minimum(x : int, y : int) := {
+minimum : int (x : int, y : int) := {
     ...
 }
 
@@ -84,10 +84,10 @@ int minimum(x : int, y : int) := {
 if (x > 0) {
     ...
 }
-Else if {
+else if {
     ...
 }
-Else {
+else {
     ...
 }
 
@@ -96,7 +96,7 @@ Else {
 text : string := if x < 10 then 'very large number' else 'what a small number'
 
 ### While
-While (x < 10) {
+while (x < 10) {
     ...
 }
 
@@ -110,9 +110,7 @@ for (item in items) {                       (hvis nemt så gør så foreach bliv
     ...
 }
 
-items.foreach(item => {
-    ...
-})
+
 
 
 
@@ -121,13 +119,7 @@ y : list of int = [1,2,3,4,5]
 z : list of int = y[1:3]  ## [2,3,4] Sublist
 
 
-### .search() (Maybe)
-# list1 : list of int = [1,2,3,4,5,6]
-# list2 : list of int = [6,7,8,9,10]
-# list1.filter(list2, (e1, e2) => e1 == e2).forEach(e => { ## [6]
-#     list1.remove(list1.get(e))
-#     list2.remove(list2.get(e))
-# })
+
 
 ### Structs
 struct Coordinate {
@@ -151,14 +143,9 @@ enum Color {RED, BLUE, GREEN}
 
 
 ### Maps
-scores : (string, int) map {
-    "Alice", 94
-    "Peter", 87
-}
-
-scores : map of (string, int)  {
-    "Alice", 94
-    "Peter", 87
+scores : map of (string -> int) {
+    "Alice": 94,
+    "Peter": 87,
 }
 
 
@@ -192,14 +179,12 @@ switch (x) {
 ### input ##
 
 x : int := readInt() 
+x : int, y : int := readInts() 
 
 ostemad := readLine() 
 
 x : float := readFloat() 
 
-x : int := input(int)        # t : "5",
-x,y,z := input(int)     # x : "3", y : "6", z: "2"
- 
 
 ### input_and_convert ###
 t = 3
