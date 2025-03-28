@@ -251,11 +251,4 @@ let compile program =
   (* Verify the module *)
   Llvm_analysis.assert_valid_module the_module;
   
-  (* Output the LLVM IR to a file *)
-  let output_file = "output.ll" in
-  let out_str = Llvm.string_of_llmodule the_module in
-  let oc = Stdio.Out_channel.create output_file in
-  Stdio.Out_channel.output_string oc out_str;
-  Stdio.Out_channel.close oc;
-  
   the_module
