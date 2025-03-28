@@ -78,6 +78,10 @@ let read_file filename =
   content
 
 let () =
+  if Array.length Sys.argv < 2 then (
+    Printf.eprintf "Missing file name to read. Run: dune exec %s <filename>\n" (Filename.basename Sys.argv.(0));
+    exit 1
+  );
   let filename = Sys.argv.(1) in
   let program = read_file filename in
   Printf.printf "Reading program from file: %s\n" filename;
