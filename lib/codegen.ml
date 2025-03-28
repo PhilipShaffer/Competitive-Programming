@@ -1,7 +1,6 @@
 open Llvm
 open Base
 open Ast
-open Stdio
 
 let context = global_context ()
 let the_module = create_module context "main"
@@ -219,8 +218,8 @@ and codegen_stmt = function
     (* Print a newline *)
     ignore (build_call putchar_type putchar [| const_int int_type 10 |] "newline" builder);
     
-    (* Return the value that was printed *)
-    value
+    (* Return a constant 0 instead of the value, to avoid affecting program return *)
+    const_int int_type 0
   
   | Block stmts ->
     (* Execute each statement in the block and return the value of the last one *)
@@ -244,10 +243,10 @@ let compile program =
   position_at_end entry builder;
   
   (* Generate code for the program *)
-  let ret_val = codegen_stmt program in
+  let _ = codegen_stmt program in
   
-  (* Return from main function *)
-  ignore (build_ret ret_val builder);
+  (* Return 0 from main function (standard success exit code) *)
+  ignore (build_ret (const_int int_type 0) builder);
   
   (* Verify the module *)
   Llvm_analysis.assert_valid_module the_module;
@@ -255,8 +254,8 @@ let compile program =
   (* Output the LLVM IR to a file *)
   let output_file = "output.ll" in
   let out_str = Llvm.string_of_llmodule the_module in
-  let oc = Out_channel.create output_file in
-  Out_channel.output_string oc out_str;
-  Out_channel.close oc;
+  let oc = Stdio.Out_channel.create output_file in
+  Stdio.Out_channel.output_string oc out_str;
+  Stdio.Out_channel.close oc;
   
   the_module
