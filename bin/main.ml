@@ -85,4 +85,14 @@ let () =
   print_tokens program;
   let ast = parse program in
   print_endline "Parsing successful!";
-  Interpreter.interpret ast;
+  (* Compile to LLVM IR *)
+  let _ = Codegen.compile ast in
+  print_endline "LLVM IR generation successful!";
+  (* Compile and run *)
+  let _ = Unix.system "/opt/homebrew/opt/llvm@18/bin/llc -filetype=obj output.ll -o output.o" in
+  let _ = Unix.system "gcc output.o -o program" in
+  let result = Unix.system "./program" in
+  match result with
+  | Unix.WEXITED code -> Printf.printf "Program exited with code: %d\n" code
+  | Unix.WSIGNALED signal -> Printf.printf "Program killed by signal: %d\n" signal
+  | Unix.WSTOPPED signal -> Printf.printf "Program stopped by signal: %d\n" signal
