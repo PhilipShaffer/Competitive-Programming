@@ -204,19 +204,15 @@ and codegen_stmt = function
     (* Evaluate the expression to get the value to print *)
     let value = codegen_expr expr in
     
-    (* Get the putchar function *)
-    let putchar_type = function_type int_type [| int_type |] in
-    let putchar = declare_function "putchar" putchar_type the_module in
+    (* Get the printf function - note it's a variadic function *)
+    let printf_type = var_arg_function_type int_type [| pointer_type context |] in
+    let printf = declare_function "printf" printf_type the_module in
     
-    (* Convert an integer to its ASCII representation and print it 
-       This is a very minimal version that only prints single digits 0-9 directly *)
-    let digit_to_ascii digit = build_add digit (const_int int_type 48) "ascii" builder in
+    (* Create a format string for printing integers *)
+    let format_str = build_global_stringptr "%d\n" "fmt" builder in
     
-    (* Print a single ASCII digit *)
-    ignore (build_call putchar_type putchar [| digit_to_ascii value |] "print" builder);
-    
-    (* Print a newline *)
-    ignore (build_call putchar_type putchar [| const_int int_type 10 |] "newline" builder);
+    (* Call printf with the format string and value *)
+    ignore (build_call printf_type printf [| format_str; value |] "printf" builder);
     
     (* Return a constant 0 instead of the value, to avoid affecting program return *)
     const_int int_type 0
