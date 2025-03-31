@@ -14,7 +14,6 @@ let digit  = ['0'-'9']          (* Digits *)
 let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
 let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
 let id     = letter (letter | digit)* (* Identifiers: starts with a letter, followed by letters or digits *)
-let string = '"' ([^'"'] | newline)* '"'
 
 (* The main lexer rule - defines how the lexer should process the input *)
 rule read =
@@ -36,7 +35,7 @@ rule read =
   | "not"   { NOT }  (* Logical NOT operator *)
   | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
   | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
-  | string  { STRING (Lexing.lexeme lexbuf)}
+  | '"'     { read_string (Buffer.create 16) lexbuf }  (* Start of a string *)
   | "+"     { PLUS }  (* Addition operator *)
   | "-"     { MINUS }  (* Subtraction operator *)
   | "*"     { MULT }  (* Multiplication operator *)
@@ -55,3 +54,17 @@ rule read =
   | "}"     { RBRACE }  (* Right brace *)
   | ";"     { SEMICOLON }  (* Semicolon *)
   | eof     { EOF }  (* End-of-file *)
+
+and read_string buf =
+  parse
+  | '"'       { STRING (Buffer.contents buf) }
+  | '\\' '"'  { Buffer.add_char buf '"'; read_string buf lexbuf }
+  | '\\' 'n'  { Buffer.add_char buf '\n'; read_string buf lexbuf }
+  | '\\' 't'  { Buffer.add_char buf '\t'; read_string buf lexbuf }
+  | '\\' '\\' { Buffer.add_char buf '\\'; read_string buf lexbuf }
+  | [^ '"' '\\']+ { 
+      Buffer.add_string buf (Lexing.lexeme lexbuf);
+      read_string buf lexbuf 
+    }
+  | eof { raise (Failure "Unterminated string") }
+  | _ { raise (Failure ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
