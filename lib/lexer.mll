@@ -13,7 +13,8 @@ let newline = '\n'              (* Newline character *)
 let digit  = ['0'-'9']          (* Digits *)
 let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
 let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
-let id     = letter+            (* Identifiers *)
+let id     = letter (letter | digit)* (* Identifiers: starts with a letter, followed by letters or digits *)
+let string = '"' ([^'"'] | newline)* '"'
 
 (* The main lexer rule - defines how the lexer should process the input *)
 rule read =
@@ -35,6 +36,7 @@ rule read =
   | "not"   { NOT }  (* Logical NOT operator *)
   | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
   | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
+  | string  { STRING (Lexing.lexeme lexbuf)}
   | "+"     { PLUS }  (* Addition operator *)
   | "-"     { MINUS }  (* Subtraction operator *)
   | "*"     { MULT }  (* Multiplication operator *)
@@ -44,9 +46,9 @@ rule read =
   | "<="    { LEQ }  (* Less than or equal operator *)
   | ">"     { GT }  (* Greater than operator *)
   | ">="    { GEQ }  (* Greater than or equal operator *)
-  | "=="    { EQ }  (* Equality operator *)
+  | "="    { EQ }  (* Equality operator *)
   | "!="    { NEQ }  (* Inequality operator *)
-  | "="     { ASSIGN }  (* Assignment operator *)
+  | ":="     { ASSIGN }  (* Assignment operator *)
   | "("     { LPAREN }  (* Left parenthesis *)
   | ")"     { RPAREN }  (* Right parenthesis *)
   | "{"     { LBRACE }  (* Left brace *)
