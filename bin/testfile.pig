@@ -15,4 +15,9 @@ while y < 10 do {
   print z;
   print x
 };
-print 2 + 2 * 2
+print 2 + 2 * 2;
+
+f := 1.01;
+print f
+
+

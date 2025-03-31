@@ -2,6 +2,7 @@
 type value = 
   | Int of int
   | String of string (* String type *)
+  | Float of float
 
 type env = (string * value) list (* Environment: list of variable bindings *)
 
@@ -15,6 +16,7 @@ let rec eval_expr (e : Ast.expr) (env : env) : value =
   match e with
   | Ast.Var x -> lookup x env
   | Ast.Int n -> Int n
+  | Ast.Float f -> Float f
   | Ast.Bool b -> if b then Int 1 else Int 0
   | Ast.String str -> String str
   | Ast.Binop (op, e1, e2) ->
@@ -97,7 +99,8 @@ let rec eval_stmt (s : Ast.stmt) (env : env) : env =
       let v = eval_expr e env in
       (match v with
         | Int n -> Printf.printf "%d\n" n       (* Print Int values *)
-        | String s -> Printf.printf "%s\n" s);  (* Print String values *)
+        | String s -> Printf.printf "%s\n" s;  (* Print String values *)
+        | Float f -> Printf.printf "%f\n" f);
         env
   | Ast.Block sl ->
       List.fold_left (fun env s -> eval_stmt s env) env sl

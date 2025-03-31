@@ -12,6 +12,7 @@ let white  = [' ' '\t']+        (* Whitespace characters *)
 let newline = '\n'              (* Newline character *)
 let digit  = ['0'-'9']          (* Digits *)
 let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
+let float  = '-'? digit+ '.' digit+
 let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
 let id     = letter (letter | digit)* (* Identifiers: starts with a letter, followed by letters or digits *)
 let string = '"' ([^'"'] | newline)* '"'
@@ -37,6 +38,7 @@ rule read =
   | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
   | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
   | string  { STRING (Lexing.lexeme lexbuf)}
+  | float   { FLOAT (float_of_string (Lexing.lexeme lexbuf)) }  (* Float literals *)
   | "+"     { PLUS }  (* Addition operator *)
   | "-"     { MINUS }  (* Subtraction operator *)
   | "*"     { MULT }  (* Multiplication operator *)
@@ -46,9 +48,9 @@ rule read =
   | "<="    { LEQ }  (* Less than or equal operator *)
   | ">"     { GT }  (* Greater than operator *)
   | ">="    { GEQ }  (* Greater than or equal operator *)
-  | "="    { EQ }  (* Equality operator *)
+  | "="     { EQ }  (* Equality operator *)
   | "!="    { NEQ }  (* Inequality operator *)
-  | ":="     { ASSIGN }  (* Assignment operator *)
+  | ":="    { ASSIGN }  (* Assignment operator *)
   | "("     { LPAREN }  (* Left parenthesis *)
   | ")"     { RPAREN }  (* Right parenthesis *)
   | "{"     { LBRACE }  (* Left brace *)
