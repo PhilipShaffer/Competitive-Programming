@@ -1,6 +1,9 @@
 ; ModuleID = 'main'
 source_filename = "main"
 
+@fmt = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+@fmt.1 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+
 define i32 @main() {
 entry:
   %y = alloca i32, align 4
@@ -15,17 +18,12 @@ entry:
   br i1 %ifcond, label %then, label %else
 
 then:                                             ; preds = %entry
-  %x3 = load i32, ptr %x, align 4
-  %ascii = add i32 %x3, 48
-  %print = call i32 @putchar(i32 %ascii)
-  %newline = call i32 @putchar(i32 10)
+  %printf = call i32 (ptr, ...) @printf(ptr @fmt, i32 100)
   br label %ifcont
 
 else:                                             ; preds = %entry
-  %y4 = load i32, ptr %y, align 4
-  %ascii5 = add i32 %y4, 48
-  %print6 = call i32 @putchar(i32 %ascii5)
-  %newline7 = call i32 @putchar(i32 10)
+  %y3 = load i32, ptr %y, align 4
+  %printf4 = call i32 (ptr, ...) @printf(ptr @fmt.1, i32 %y3)
   br label %ifcont
 
 ifcont:                                           ; preds = %else, %then
@@ -33,4 +31,4 @@ ifcont:                                           ; preds = %else, %then
   ret i32 0
 }
 
-declare i32 @putchar(i32)
+declare i32 @printf(ptr, ...)
