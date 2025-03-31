@@ -10,6 +10,7 @@
 (* Each token can optionally have a type, which is the type of value associated with the token *)
 %token <int> INT        (* Integer literals, carrying an int value *)
 %token <string> ID      (* Identifiers, carrying a string value *)
+%token <string> STRING
 %token <bool> BOOL      (* Boolean literals, carrying a bool value *)
 
 (* Tokens for comparison operators *)
@@ -60,6 +61,7 @@ expr:
   | x = ID                       { Var x }                 (* Variable reference *)
   | i = INT                      { Int i }                 (* Integer literal *)
   | b = BOOL                     { Bool b }                (* Boolean literal *)
+  | str = STRING                 { String str }
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
   | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
