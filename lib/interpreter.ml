@@ -25,18 +25,23 @@ let rec eval_expr (e : Ast.expr) (env : env) : value =
     (match op with
       | Ast.Add -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 + i2)  (* Addition works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 +. f2)
             | _ -> failwith "Invalid types for addition")
       | Ast.Sub -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 - i2)  (* Subtraction works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 -. f2)
             | _ -> failwith "Invalid types for subtraction")
       | Ast.Mult -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 * i2)  (* Multiplication works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 *. f2)
             | _ -> failwith "Invalid types for multiplication")
       | Ast.Div -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 / i2)  (* Division works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 /. f2)
             | _ -> failwith "Invalid types for division")
       | Ast.Lt -> (match v1, v2 with
             | Int i1, Int i2 -> Int (if i1 < i2 then 1 else 0)  (* Less-than comparison works for Int *)
+            | Float f1, Float f2 -> Int (if f1 < f2 then 1 else 0) 
             | _ -> failwith "Invalid types for less-than comparison")
       | Ast.Leq -> (match v1, v2 with
             | Int i1, Int i2 -> Int (if i1 <= i2 then 1 else 0)  (* Less-than-or-equal comparison for Int *)
