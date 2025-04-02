@@ -27,8 +27,7 @@ type typed_value = {
 let context = global_context ()
 let the_module = create_module context "main"
 let builder = builder context
-let named_values : (string, llvalue) Hashtbl.t = Hashtbl.create (module String)
-let var_types : (string, value_type) Hashtbl.t = Hashtbl.create (module String)  (* Store variable types using enum *)
+let named_values : (string, typed_value) Hashtbl.t = Hashtbl.create (module String)
 let int_type = i32_type context
 let float_type = float_type context
 let string_type = pointer_type context
@@ -57,8 +56,8 @@ let rec get_expr_type = function
   | String _ -> StringType
   | Bool _ -> BoolType
   | Var name -> 
-      (match Hashtbl.find var_types name with
-       | Some typ -> typ
+      (match Hashtbl.find named_values name with
+       | Some typed_val -> typed_val.typ
        | None -> IntType)  (* Default to IntType if not found *)
   | Binop (op, lhs, rhs) ->
       (match op with
@@ -100,22 +99,19 @@ let rec codegen_expr = function
     (match Hashtbl.find named_values name with
      | Some value ->
         (* Determine how to handle the value based on its type *)
-        (match Hashtbl.find var_types name with
-         | Some StringType -> 
+        (match value.typ with
+         | StringType -> 
             (* For string variables, just return the pointer *)
-            { value = value; typ = StringType }
-         | Some FloatType ->
+            value
+         | FloatType ->
             (* For float variables, load from the alloca *)
-            { value = build_load float_type value name builder; typ = FloatType }
-         | Some BoolType ->
+            { value = build_load float_type value.value name builder; typ = FloatType }
+         | BoolType ->
             (* For boolean variables, load from the alloca *)
-            { value = build_load int_type value name builder; typ = BoolType }
-         | Some IntType ->
+            { value = build_load int_type value.value name builder; typ = BoolType }
+         | IntType ->
             (* For int variables, load from the alloca *)
-            { value = build_load int_type value name builder; typ = IntType }
-         | None -> 
-            (* Default to int if type is unknown *)
-            { value = build_load int_type value name builder; typ = IntType })
+            { value = build_load int_type value.value name builder; typ = IntType })
      | None -> raise (Failure ("unknown variable name: " ^ name)))
   
   | Int n -> 
@@ -277,122 +273,115 @@ and codegen_stmt = function
     (* Evaluate the expression to get the value *)
     let value_typed = codegen_expr expr in
     
-    (* Record the variable type *)
-    Hashtbl.set var_types ~key:var ~data:(get_expr_type expr);
-    
     (* Look up the name or create it if this is the first use *)
     (match Hashtbl.find named_values var with
-     | Some alloca ->
+     | Some existing_var ->
         (* Existing variable, update its value *)
-        (match Hashtbl.find var_types var with
-         | Some StringType ->
-            (* For strings, just store the pointer *)
-            Hashtbl.set named_values ~key:var ~data:value_typed.value;
+        (match existing_var.typ with
+         | StringType ->
+            (* For strings, just update the reference *)
+            Hashtbl.set named_values ~key:var ~data:value_typed;
             value_typed
-         | Some FloatType ->
+         | FloatType ->
             (* For floats, store in the alloca *)
-            ignore (build_store value_typed.value alloca builder);
+            ignore (build_store value_typed.value existing_var.value builder);
             value_typed
-         | Some BoolType ->
+         | BoolType ->
             (* For booleans, store in the alloca *)
-            ignore (build_store value_typed.value alloca builder);
+            ignore (build_store value_typed.value existing_var.value builder);
             value_typed
-         | Some IntType ->
+         | IntType ->
             (* For ints, store in the alloca *)
-            ignore (build_store value_typed.value alloca builder);
-            value_typed
-         | None ->
-            (* Default to int if type is unknown *)
-            ignore (build_store value_typed.value alloca builder);
+            ignore (build_store value_typed.value existing_var.value builder);
             value_typed)
      | None ->
         (* New variable, handle based on type *)
         (match expr with
          | String _ ->
             (* For strings, just store the pointer directly *)
-            Hashtbl.set named_values ~key:var ~data:value_typed.value;
+            Hashtbl.set named_values ~key:var ~data:value_typed;
             value_typed
          | Float _ ->
             (* For floats, allocate space and store *)
             let the_function = block_parent (insertion_block builder) in
             let alloca = create_entry_block_alloca the_function var float_type in
-            Hashtbl.set named_values ~key:var ~data:alloca;
             ignore (build_store value_typed.value alloca builder);
+            let typed_alloca = { value = alloca; typ = FloatType } in
+            Hashtbl.set named_values ~key:var ~data:typed_alloca;
             value_typed
          | Bool _ ->
             (* For booleans, allocate space and store *)
             let the_function = block_parent (insertion_block builder) in
             let alloca = create_entry_block_alloca the_function var int_type in
-            Hashtbl.set named_values ~key:var ~data:alloca;
             ignore (build_store value_typed.value alloca builder);
+            let typed_alloca = { value = alloca; typ = BoolType } in
+            Hashtbl.set named_values ~key:var ~data:typed_alloca;
             value_typed
          | Int _ ->
             (* For ints, allocate space and store *)
             let the_function = block_parent (insertion_block builder) in
             let alloca = create_entry_block_alloca the_function var int_type in
-            Hashtbl.set named_values ~key:var ~data:alloca;
             ignore (build_store value_typed.value alloca builder);
+            let typed_alloca = { value = alloca; typ = IntType } in
+            Hashtbl.set named_values ~key:var ~data:typed_alloca;
             value_typed
          | _ ->
             (* For other types, allocate space and store *)
             let the_function = block_parent (insertion_block builder) in
             let alloca = create_entry_block_alloca the_function var int_type in
-            Hashtbl.set named_values ~key:var ~data:alloca;
             ignore (build_store value_typed.value alloca builder);
+            let typed_alloca = { value = alloca; typ = IntType } in
+            Hashtbl.set named_values ~key:var ~data:typed_alloca;
             value_typed))
   
   | Let (var, expr, body) ->
     (* Evaluate the initializer *)
     let init_typed = codegen_expr expr in
     
-    (* Record the variable type *)
-    Hashtbl.set var_types ~key:var ~data:(get_expr_type expr);
-    
-    (* Save the old variable binding and type if they exist *)
+    (* Save the old variable binding if it exists *)
     let old_binding = Hashtbl.find named_values var in
-    let old_type = Hashtbl.find var_types var in
     
     (* Handle based on the expression type *)
     (match expr with
      | String _ ->
         (* For strings, just store the pointer directly *)
-        Hashtbl.set named_values ~key:var ~data:init_typed.value;
+        Hashtbl.set named_values ~key:var ~data:init_typed;
      | Float _ ->
         (* For floats, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var float_type in
-        Hashtbl.set named_values ~key:var ~data:alloca;
         ignore (build_store init_typed.value alloca builder);
+        let typed_alloca = { value = alloca; typ = FloatType } in
+        Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | Bool _ ->
         (* For booleans, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
-        Hashtbl.set named_values ~key:var ~data:alloca;
         ignore (build_store init_typed.value alloca builder);
+        let typed_alloca = { value = alloca; typ = BoolType } in
+        Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | Int _ ->
         (* For ints, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
-        Hashtbl.set named_values ~key:var ~data:alloca;
         ignore (build_store init_typed.value alloca builder);
+        let typed_alloca = { value = alloca; typ = IntType } in
+        Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | _ ->
         (* For other types, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
-        Hashtbl.set named_values ~key:var ~data:alloca;
-        ignore (build_store init_typed.value alloca builder));
+        ignore (build_store init_typed.value alloca builder);
+        let typed_alloca = { value = alloca; typ = IntType } in
+        Hashtbl.set named_values ~key:var ~data:typed_alloca);
     
     (* Generate code for the body *)
     let body_typed = codegen_stmt body in
     
-    (* Restore the old binding and type if they existed *)
+    (* Restore the old binding if it existed *)
     (match old_binding with
      | Some old_value -> Hashtbl.set named_values ~key:var ~data:old_value
      | None -> Hashtbl.remove named_values var);
-    
-    (match old_type with
-     | Some old_type_val -> Hashtbl.set var_types ~key:var ~data:old_type_val
-     | None -> Hashtbl.remove var_types var);
     
     (* Return the value of the body *)
     body_typed
