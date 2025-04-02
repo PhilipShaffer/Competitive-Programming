@@ -2,18 +2,34 @@ open Llvm
 open Base
 open Ast
 
+(* 
+ * FUTURE IMPROVEMENT NOTES:
+ * This code could be improved by implementing a more structured type system:
+ * 1. Created a value_type enum to represent types (Int, Float, String, Bool)
+ * 2. Associate types with values in a single data structure
+ * 3. Use pattern matching for type checking instead of equality comparisons
+ * 4. Implement a unified get_expr_type function to centralize type determination
+ *)
+
+(* Value type enum to represent types *)
+type value_type =
+  | IntType
+  | FloatType
+  | StringType
+  | BoolType
+
 let context = global_context ()
 let the_module = create_module context "main"
 let builder = builder context
 let named_values : (string, llvalue) Hashtbl.t = Hashtbl.create (module String)
-let var_types : (string, string) Hashtbl.t = Hashtbl.create (module String)  (* Store variable types *)
+let var_types : (string, value_type) Hashtbl.t = Hashtbl.create (module String)  (* Store variable types using enum *)
 let int_type = i32_type context
 let float_type = float_type context
 let string_type = pointer_type context
 
 (* Create an alloca instruction in the entry block of the function. This
  * is used for mutable variables etc. *)
- let create_entry_block_alloca the_function var_name typ =
+let create_entry_block_alloca the_function var_name typ =
   let builder =
     builder_at context (instr_begin (entry_block the_function))
   in
@@ -23,6 +39,10 @@ let string_type = pointer_type context
 (* Helper function to check if an expression is a string literal *)
 let is_string_expr = function
   | String _ -> true
+  | Var name -> 
+      (match Hashtbl.find var_types name with
+       | Some StringType -> true
+       | _ -> false)
   | _ -> false
 ;;
 
@@ -31,7 +51,7 @@ let is_float_expr = function
   | Float _ -> true
   | Var name -> 
       (match Hashtbl.find var_types name with
-       | Some "float" -> true
+       | Some FloatType -> true
        | _ -> false)
   | _ -> false
 ;;
@@ -43,10 +63,10 @@ let rec codegen_expr = function
      | Some value ->
         (* Determine how to handle the value based on its type *)
         (match Hashtbl.find var_types name with
-         | Some "string" -> 
+         | Some StringType -> 
             (* For string variables, just return the pointer *)
             value
-         | Some "float" ->
+         | Some FloatType ->
             (* For float variables, load from the alloca *)
             build_load float_type value name builder
          | _ -> 
@@ -201,8 +221,8 @@ and codegen_stmt = function
     
     (* Record the variable type *)
     (match expr with
-     | String _ -> Hashtbl.set var_types ~key:var ~data:"string"
-     | Float _ -> Hashtbl.set var_types ~key:var ~data:"float"
+     | String _ -> Hashtbl.set var_types ~key:var ~data:StringType
+     | Float _ -> Hashtbl.set var_types ~key:var ~data:FloatType
      | _ -> ());
     
     (* Look up the name or create it if this is the first use *)
@@ -210,11 +230,11 @@ and codegen_stmt = function
      | Some alloca ->
         (* Existing variable, update its value *)
         (match Hashtbl.find var_types var with
-         | Some "string" ->
+         | Some StringType ->
             (* For strings, just store the pointer *)
             Hashtbl.set named_values ~key:var ~data:value;
             value
-         | Some "float" ->
+         | Some FloatType ->
             (* For floats, store in the alloca *)
             ignore (build_store value alloca builder);
             value
@@ -250,8 +270,8 @@ and codegen_stmt = function
     
     (* Record the variable type *)
     (match expr with
-     | String _ -> Hashtbl.set var_types ~key:var ~data:"string"
-     | Float _ -> Hashtbl.set var_types ~key:var ~data:"float"
+     | String _ -> Hashtbl.set var_types ~key:var ~data:StringType
+     | Float _ -> Hashtbl.set var_types ~key:var ~data:FloatType
      | _ -> ());
     
     (* Save the old variable binding and type if they exist *)
@@ -405,10 +425,10 @@ and codegen_stmt = function
       | Var var_name ->
           (* For variables, check the type and format accordingly *)
           (match Hashtbl.find var_types var_name with
-           | Some "string" ->
+           | Some StringType ->
                (* For string variables, use %s format and pass the string pointer directly *)
                build_global_stringptr "%s\n" "fmt" builder, value
-           | Some "float" ->
+           | Some FloatType ->
                (* For float variables, use %f format *)
                build_global_stringptr "%f\n" "fmt" builder, value
            | _ ->
