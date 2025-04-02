@@ -2,17 +2,17 @@
 source_filename = "main"
 
 @fmt = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
-@fmt.1 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+@fmt.1 = private unnamed_addr constant [4 x i8] c"%f\0A\00", align 1
 
 define i32 @main() {
 entry:
-  %y = alloca i32, align 4
-  %x = alloca i32, align 4
-  store i32 5, ptr %x, align 4
-  store i32 10, ptr %y, align 4
-  %x1 = load i32, ptr %x, align 4
-  %y2 = load i32, ptr %y, align 4
-  %cmptmp = icmp slt i32 %x1, %y2
+  %y = alloca float, align 4
+  %x = alloca float, align 4
+  store float 5.000000e+00, ptr %x, align 4
+  store float 1.000000e+01, ptr %y, align 4
+  %x1 = load float, ptr %x, align 4
+  %y2 = load float, ptr %y, align 4
+  %cmptmp = fcmp olt float %x1, %y2
   %booltmp = zext i1 %cmptmp to i32
   %ifcond = icmp ne i32 %booltmp, 0
   br i1 %ifcond, label %then, label %else
@@ -22,8 +22,8 @@ then:                                             ; preds = %entry
   br label %ifcont
 
 else:                                             ; preds = %entry
-  %y3 = load i32, ptr %y, align 4
-  %printf4 = call i32 (ptr, ...) @printf(ptr @fmt.1, i32 %y3)
+  %y3 = load float, ptr %y, align 4
+  %printf4 = call i32 (ptr, ...) @printf(ptr @fmt.1, float %y3)
   br label %ifcont
 
 ifcont:                                           ; preds = %else, %then
