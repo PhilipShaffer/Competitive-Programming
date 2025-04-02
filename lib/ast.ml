@@ -1,5 +1,12 @@
 (* Abstract Syntax Tree (AST) for the While language *)
 
+(* Value type enum to represent types *)
+type value_type =
+  | IntType
+  | FloatType
+  | StringType
+  | BoolType
+
 (* Unary operators - operations that take a single operand *)
 type uop =
   | Neg   (* Arithmetic negation: -e *)

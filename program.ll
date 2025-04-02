@@ -8,7 +8,7 @@ define i32 @main() {
 entry:
   %y = alloca i32, align 4
   %x = alloca i32, align 4
-  store i32 5, ptr %x, align 4
+  store i32 9, ptr %x, align 4
   store i32 10, ptr %y, align 4
   %x1 = load i32, ptr %x, align 4
   %y2 = load i32, ptr %y, align 4
@@ -18,12 +18,13 @@ entry:
   br i1 %ifcond, label %then, label %else
 
 then:                                             ; preds = %entry
-  %printf = call i32 (ptr, ...) @printf(ptr @fmt, i32 100)
+  %x3 = load i32, ptr %x, align 4
+  %printf = call i32 (ptr, ...) @printf(ptr @fmt, i32 %x3)
   br label %ifcont
 
 else:                                             ; preds = %entry
-  %y3 = load i32, ptr %y, align 4
-  %printf4 = call i32 (ptr, ...) @printf(ptr @fmt.1, i32 %y3)
+  %y4 = load i32, ptr %y, align 4
+  %printf5 = call i32 (ptr, ...) @printf(ptr @fmt.1, i32 %y4)
   br label %ifcont
 
 ifcont:                                           ; preds = %else, %then

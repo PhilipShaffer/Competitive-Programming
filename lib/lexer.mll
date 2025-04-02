@@ -37,7 +37,6 @@ rule read =
   | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
   | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
   | '"'     { read_string (Buffer.create 16) lexbuf }  (* Start of a string *)  
-  | string  { STRING (Lexing.lexeme lexbuf)}
   | float   { FLOAT (float_of_string (Lexing.lexeme lexbuf)) }  (* Float literals *)
   | "+"     { PLUS }  (* Addition operator *)
   | "-"     { MINUS }  (* Subtraction operator *)
