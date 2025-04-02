@@ -1,6 +1,6 @@
-let x := 5 in
+let x := 5+4 in
 let y := 10 in
 if x < y then
-  print "lol"
+  print x
 else
   print y

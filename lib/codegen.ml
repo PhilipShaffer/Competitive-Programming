@@ -5,10 +5,10 @@ open Ast
 (* 
  * FUTURE IMPROVEMENT NOTES:
  * This code could be improved by implementing a more structured type system:
- * 1. Created a value_type enum to represent types (Int, Float, String, Bool)
- * 2. Associate types with values in a single data structure
- * 3. Use pattern matching for type checking instead of equality comparisons
- * 4. Implement a unified get_expr_type function to centralize type determination
+ * 1. Created a value_type enum to represent types (Int, Float, String, Bool) ✓
+ * 2. Associate types with values in a single data structure ✓
+ * 3. Use pattern matching for type checking instead of equality comparisons ✓
+ * 4. Implement a unified get_expr_type function to centralize type determination ✓
  *)
 
 (* Value type enum to represent types *)
@@ -50,24 +50,44 @@ let create_entry_block_alloca the_function var_name typ =
   build_alloca typ var_name builder
 ;;
 
-(* Helper function to check if an expression is a string literal *)
-let is_string_expr = function
-  | String _ -> true
+(* Helper function to get the type of an expression *)
+let rec get_expr_type = function
+  | Int _ -> IntType
+  | Float _ -> FloatType
+  | String _ -> StringType
+  | Bool _ -> BoolType
   | Var name -> 
       (match Hashtbl.find var_types name with
-       | Some StringType -> true
-       | _ -> false)
-  | _ -> false
+       | Some typ -> typ
+       | None -> IntType)  (* Default to IntType if not found *)
+  | Binop (op, lhs, rhs) ->
+      (match op with
+       | Add | Sub | Mult | Div | Mod -> 
+           (* Check if either operand is float, result is float, otherwise int *)
+           if Poly.(=) (get_expr_type lhs) FloatType || Poly.(=) (get_expr_type rhs) FloatType then
+             FloatType
+           else
+             IntType
+       | Lt | Leq | Gt | Geq | Eq | Neq | And | Or ->
+           (* Comparison operators always return boolean *)
+           BoolType)
+  | Unop (op, expr) ->
+      (match op with
+       | Neg -> 
+           (* Negation preserves the type (float or int) *)
+           let typ = get_expr_type expr in
+           if Poly.(=) typ FloatType then FloatType else IntType
+       | Not -> 
+           (* Logical not always returns boolean *)
+           BoolType)
+;;
+
+(* Helper function to check if an expression is a string *)
+let is_string_expr expr = Poly.(=) (get_expr_type expr) StringType
 ;;
 
 (* Helper function to check if an expression is a float *)
-let is_float_expr = function
-  | Float _ -> true
-  | Var name -> 
-      (match Hashtbl.find var_types name with
-       | Some FloatType -> true
-       | _ -> false)
-  | _ -> false
+let is_float_expr expr = Poly.(=) (get_expr_type expr) FloatType
 ;;
 
 (* Helper function to extract the LLVM value from a typed_value or directly use a raw llvalue *)
@@ -117,8 +137,12 @@ let rec codegen_expr = function
     let lhs_val = lhs_typed.value in
     let rhs_val = rhs_typed.value in
     
+    (* Get the types of the operands *)
+    let lhs_type = get_expr_type lhs in
+    let rhs_type = get_expr_type rhs in
+    
     (* Check if either operand is a string and handle accordingly *)
-    if (match lhs_typed.typ, rhs_typed.typ with
+    if (match lhs_type, rhs_type with
         | StringType, _ | _, StringType -> true
         | _ -> false) then
       (* For strings, we currently only support equality comparison *)
@@ -141,15 +165,15 @@ let rec codegen_expr = function
           { value = build_zext cmp int_type "booltmp" builder; typ = BoolType }
        | _ -> raise (Failure "unsupported operation on strings"))
     (* Check if either operand is a float and handle accordingly *)
-    else if (match lhs_typed.typ, rhs_typed.typ with
+    else if (match lhs_type, rhs_type with
              | FloatType, _ | _, FloatType -> true
              | _ -> false) then
       (* For float operations, we need to convert both operands to float if they're not already *)
       let lhs_val = 
-        if (match lhs_typed.typ with FloatType -> true | _ -> false) then lhs_val 
+        if Poly.(=) lhs_type FloatType then lhs_val 
         else build_sitofp lhs_val float_type "float_cast" builder in
       let rhs_val = 
-        if (match rhs_typed.typ with FloatType -> true | _ -> false) then rhs_val 
+        if Poly.(=) rhs_type FloatType then rhs_val 
         else build_sitofp rhs_val float_type "float_cast" builder in
       
       (* Perform the float operation *)
@@ -231,15 +255,17 @@ let rec codegen_expr = function
   | Unop (op, expr) ->
     let expr_typed = codegen_expr expr in
     let expr_val = expr_typed.value in
+    let expr_type = get_expr_type expr in
+    
     (match op with
      | Neg -> 
-        if (match expr_typed.typ with FloatType -> true | _ -> false) then
+        if Poly.(=) expr_type FloatType then
           { value = build_fneg expr_val "negtmp" builder; typ = FloatType }
         else
           { value = build_neg expr_val "negtmp" builder; typ = IntType }
      | Not ->
         (* For logical not, we check if the expression is equal to 0 (false) *)
-        if (match expr_typed.typ with FloatType -> true | _ -> false) then
+        if Poly.(=) expr_type FloatType then
           let cmp = build_fcmp Fcmp.Oeq expr_val (const_float float_type 0.0) "cmptmp" builder in
           { value = build_zext cmp int_type "booltmp" builder; typ = BoolType }
         else
@@ -252,12 +278,7 @@ and codegen_stmt = function
     let value_typed = codegen_expr expr in
     
     (* Record the variable type *)
-    (match expr with
-     | String _ -> Hashtbl.set var_types ~key:var ~data:StringType
-     | Float _ -> Hashtbl.set var_types ~key:var ~data:FloatType
-     | Bool _ -> Hashtbl.set var_types ~key:var ~data:BoolType
-     | Int _ -> Hashtbl.set var_types ~key:var ~data:IntType
-     | _ -> ());
+    Hashtbl.set var_types ~key:var ~data:(get_expr_type expr);
     
     (* Look up the name or create it if this is the first use *)
     (match Hashtbl.find named_values var with
@@ -325,12 +346,7 @@ and codegen_stmt = function
     let init_typed = codegen_expr expr in
     
     (* Record the variable type *)
-    (match expr with
-     | String _ -> Hashtbl.set var_types ~key:var ~data:StringType
-     | Float _ -> Hashtbl.set var_types ~key:var ~data:FloatType
-     | Bool _ -> Hashtbl.set var_types ~key:var ~data:BoolType
-     | Int _ -> Hashtbl.set var_types ~key:var ~data:IntType
-     | _ -> ());
+    Hashtbl.set var_types ~key:var ~data:(get_expr_type expr);
     
     (* Save the old variable binding and type if they exist *)
     let old_binding = Hashtbl.find named_values var in
@@ -384,10 +400,11 @@ and codegen_stmt = function
   | If (cond, then_stmt, else_stmt) ->
     (* Generate code for the condition *)
     let cond_typed = codegen_expr cond in
+    let cond_type = get_expr_type cond in
     
     (* Convert condition to a boolean value *)
     let cond_val = 
-      if (match cond_typed.typ with FloatType -> true | _ -> false) then
+      if Poly.(=) cond_type FloatType then
         (* For float conditions, compare with 0.0 *)
         let zero = const_float float_type 0.0 in
         build_fcmp Fcmp.One cond_typed.value zero "ifcond" builder
@@ -450,8 +467,10 @@ and codegen_stmt = function
     (* Generate code for the condition block *)
     position_at_end cond_bb builder;
     let cond_typed = codegen_expr cond in
+    let cond_type = get_expr_type cond in
+    
     let cond_val = 
-      if (match cond_typed.typ with FloatType -> true | _ -> false) then
+      if Poly.(=) cond_type FloatType then
         (* For float conditions, compare with 0.0 *)
         let zero = const_float float_type 0.0 in
         build_fcmp Fcmp.One cond_typed.value zero "whilecond" builder
@@ -476,41 +495,24 @@ and codegen_stmt = function
     { value = const_int int_type 0; typ = IntType }
   
   | Print expr ->
-    (* Evaluate the expression to get the value to print *)
+    (* Evaluate the expression to get the value *)
     let value_typed = codegen_expr expr in
+    let expr_type = get_expr_type expr in
     
     (* Get the printf function - note it's a variadic function *)
     let printf_type = var_arg_function_type int_type [| pointer_type context |] in
     let printf = declare_function "printf" printf_type the_module in
     
     (* Create appropriate format string based on expression type *)
-    let format_str, print_value = 
-      match expr with
-      | String _ -> 
-          (* For string literals, use %s format and pass the string pointer directly *)
-          build_global_stringptr "%s\n" "fmt" builder, value_typed.value
-      | Float _ ->
-          (* For float literals, use %f format *)
-          build_global_stringptr "%f\n" "fmt" builder, value_typed.value
-      | Var var_name ->
-          (* For variables, check the type and format accordingly *)
-          (match Hashtbl.find var_types var_name with
-           | Some StringType ->
-               (* For string variables, use %s format and pass the string pointer directly *)
-               build_global_stringptr "%s\n" "fmt" builder, value_typed.value
-           | Some FloatType ->
-               (* For float variables, use %f format *)
-               build_global_stringptr "%f\n" "fmt" builder, value_typed.value
-           | _ ->
-               (* For other values, use %d format and pass the int value *)
-               build_global_stringptr "%d\n" "fmt" builder, value_typed.value)
-      | _ -> 
-          (* For other values, use %d format and pass the int value *)
-          build_global_stringptr "%d\n" "fmt" builder, value_typed.value
+    let format_str = 
+      match expr_type with
+      | StringType -> build_global_stringptr "%s\n" "fmt" builder
+      | FloatType -> build_global_stringptr "%f\n" "fmt" builder
+      | _ -> build_global_stringptr "%d\n" "fmt" builder
     in
     
     (* Call printf with the format string and value *)
-    ignore (build_call printf_type printf [| format_str; print_value |] "printf" builder);
+    ignore (build_call printf_type printf [| format_str; value_typed.value |] "printf" builder);
     
     (* Return a constant 0 instead of the value, to avoid affecting program return *)
     { value = const_int int_type 0; typ = IntType }
