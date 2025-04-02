@@ -2,6 +2,7 @@
 type value = 
   | Int of int
   | String of string (* String type *)
+  | Float of float
 
 type env = (string * value) list (* Environment: list of variable bindings *)
 
@@ -15,6 +16,7 @@ let rec eval_expr (e : Ast.expr) (env : env) : value =
   match e with
   | Ast.Var x -> lookup x env
   | Ast.Int n -> Int n
+  | Ast.Float f -> Float f
   | Ast.Bool b -> if b then Int 1 else Int 0
   | Ast.String str -> String str
   | Ast.Binop (op, e1, e2) ->
@@ -23,18 +25,23 @@ let rec eval_expr (e : Ast.expr) (env : env) : value =
     (match op with
       | Ast.Add -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 + i2)  (* Addition works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 +. f2)
             | _ -> failwith "Invalid types for addition")
       | Ast.Sub -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 - i2)  (* Subtraction works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 -. f2)
             | _ -> failwith "Invalid types for subtraction")
       | Ast.Mult -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 * i2)  (* Multiplication works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 *. f2)
             | _ -> failwith "Invalid types for multiplication")
       | Ast.Div -> (match v1, v2 with
             | Int i1, Int i2 -> Int (i1 / i2)  (* Division works only for Int values *)
+            | Float f1, Float f2 -> Float (f1 /. f2)
             | _ -> failwith "Invalid types for division")
       | Ast.Lt -> (match v1, v2 with
             | Int i1, Int i2 -> Int (if i1 < i2 then 1 else 0)  (* Less-than comparison works for Int *)
+            | Float f1, Float f2 -> Int (if f1 < f2 then 1 else 0) 
             | _ -> failwith "Invalid types for less-than comparison")
       | Ast.Leq -> (match v1, v2 with
             | Int i1, Int i2 -> Int (if i1 <= i2 then 1 else 0)  (* Less-than-or-equal comparison for Int *)
@@ -97,7 +104,8 @@ let rec eval_stmt (s : Ast.stmt) (env : env) : env =
       let v = eval_expr e env in
       (match v with
         | Int n -> Printf.printf "%d\n" n       (* Print Int values *)
-        | String s -> Printf.printf "%s\n" s);  (* Print String values *)
+        | String s -> Printf.printf "%s\n" s;  (* Print String values *)
+        | Float f -> Printf.printf "%f\n" f);
         env
   | Ast.Block sl ->
       List.fold_left (fun env s -> eval_stmt s env) env sl

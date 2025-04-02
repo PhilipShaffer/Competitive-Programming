@@ -15,6 +15,7 @@ let print_tokens s =
           | Parser.ID s -> Printf.sprintf "ID(%s)" s
           | Parser.BOOL b -> Printf.sprintf "BOOL(%b)" b
           | Parser.STRING str -> Printf.sprintf "STRING(%s)" str
+          | Parser.FLOAT f -> Printf.sprintf "FLOAT(%f)" f
           | Parser.PLUS -> "PLUS"
           | Parser.MINUS -> "MINUS"
           | Parser.MULT -> "MULT"

@@ -26,6 +26,7 @@ type expr =
  | Var of string             (* Variable reference: x *)
  | Int of int                (* Integer literal: 42 *)
  | String of string
+ | Float of float
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
