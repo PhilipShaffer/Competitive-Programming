@@ -31,7 +31,7 @@
 %token PLUS MINUS MULT DIV MOD
 
 (* Tokens for delimiters *)
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON
+%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON COMMA
 
 (* End-of-file token *)
 %token EOF
