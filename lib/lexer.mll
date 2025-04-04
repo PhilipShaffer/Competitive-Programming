@@ -62,6 +62,7 @@ rule read =
   | "}"     { RBRACE }  (* Right brace *)
   | ";"     { SEMICOLON }  (* Semicolon *)
   | ","     { COMMA }  (* Comma *)
+  | "return" { RETURN }  (* Return keyword *)
   | eof     { EOF }  (* End-of-file *)
 
 and read_string buf =

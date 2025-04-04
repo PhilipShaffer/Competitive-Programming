@@ -15,10 +15,14 @@ type typed_value = {
   typ: value_type; (* The type of the value *)
 }
 
+(* LLVM context, module, and builder *)
 let context = global_context ()
 let the_module = create_module context "main"
 let builder = builder context
 let named_values : (string, typed_value) Hashtbl.t = Hashtbl.create (module String)
+let function_protos : (string, proto) Hashtbl.t = Hashtbl.create (module String)
+
+(* LLVM types for basic types *)
 let int_type = i32_type context
 let float_type = float_type context
 let string_type = pointer_type context
@@ -70,7 +74,6 @@ let rec get_expr_type = function
        | Not -> 
            (* Logical not always returns boolean *)
            BoolType)
-;;
 
 (* Helper function to check if an expression is a string *)
 let is_string_expr expr = Poly.(=) (get_expr_type expr) StringType

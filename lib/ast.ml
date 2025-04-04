@@ -30,24 +30,26 @@ type bop =
 
 (* Expressions - represent computations that produce values *)
 type expr =
- | Var of string             (* Variable reference: x *)
- | Int of int                (* Integer literal: 42 *)
- | String of string
- | Float of float
- | Bool of bool              (* Boolean literal: true, false *)
- | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
- | Unop of uop * expr        (* Unary operation: op e *)
- | Call of string * expr list (* Function call: f(e1, e2, ...) *)
+  | Var of string             (* Variable reference: x *)
+  | Int of int                (* Integer literal: 42 *)
+  | String of string
+  | Float of float
+  | Bool of bool              (* Boolean literal: true, false *)
+  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
+  | Unop of uop * expr        (* Unary operation: op e *)
+  | Call of string * expr list (* Function call: f(e1, e2, ...) *)
 
 (* Function prototype with name, parameter types, and return type *)
 type proto = Prototype of string * (string * value_type) list * value_type
 
 (* Statements - represent actions or commands *)
 type stmt =
- | Assign of string * expr   (* Assignment: x = expr *)
- | Let of string * expr * stmt (* Let binding: let x = expr in stmt *)
- | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)
- | While of expr * stmt      (* Loop: while expr do stmt *)
- | Print of expr             (* Print statement: print expr *)
- | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
- | Func of proto * stmt      (* Function definition *)
+  | Assign of string * expr   (* Assignment: x = expr *)
+  | Let of string * expr * stmt (* Let binding: let x = expr in stmt *)
+  | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)
+  | While of expr * stmt      (* Loop: while expr do stmt *)
+  | Print of expr             (* Print statement: print expr *)
+  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
+  | Func of proto * stmt      (* Function definition *)
+  | Return of expr option     (* Return statement: return expr *)
+  

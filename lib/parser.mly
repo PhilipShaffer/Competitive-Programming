@@ -22,7 +22,7 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO LET IN ASSIGN
+%token IF THEN ELSE PRINT WHILE DO LET IN ASSIGN RETURN
 
 (* Tokens for logical operators *)
 %token AND OR NOT
@@ -81,8 +81,8 @@ param:
 
 (* Function definition rules *)
 func_def:
-  | name = ID; COLON; LPAREN; params = param_list; RPAREN; ARROW; ret_type = value_type; ASSIGN; LBRACE; body = stmt_list; RBRACE
-    { Func (Prototype (name, params, ret_type), Block body) }
+  | name = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = value_type; ASSIGN; LBRACE; body = stmt_list; RBRACE
+    { Func (Prototype (name, params, ret_type), Block body) } (* Function definition: f(x: int, y: bool) -> int = { ... } *)
   ;
 
 (* Expression rules - define how expressions are parsed *)
@@ -92,7 +92,6 @@ expr:
   | b = BOOL                     { Bool b }                (* Boolean literal *)
   | str = STRING                 { String str }
   | f = FLOAT                    { Float f }
-  | x = ID; LPAREN; args = expr_list; RPAREN { Call (x, args) }  (* Function call: f(x, y, z) *)
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
   | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
@@ -109,6 +108,9 @@ expr:
   | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
   | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
+  | x = ID; LPAREN; args = expr_list; RPAREN { Call (x, args) }  (* Function call: f(x, y, z) *)
+  | e1 = expr; COLON; e2 = expr  { Binop (Colon, e1, e2) } (* Type annotation: e1 : e2 *)
+  | e1 = expr; ARROW; e2 = expr  { Binop (Arrow, e1, e2) } (* Function type: e1 -> e2 *)
   ;
 
 (* Argument list rules *)
@@ -128,6 +130,8 @@ stmt:
   | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
   | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
   | f = func_def                                          { f }                     (* Function definition *)
+  | RETURN; e = expr;                                     { Return e }              (* Return statement: return e *)
+  | RETURN;                                               { Return None }           (* Return statement without expression *)
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)
