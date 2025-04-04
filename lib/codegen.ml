@@ -21,7 +21,7 @@ type value_type =
 (* Typed value structure to associate types with values *)
 type typed_value = {
   value: llvalue;  (* The LLVM value *)
-  typ: value_type; (* The type of the value *)
+  typ: Ast.value_type; (* The type of the value *)
 }
 
 let context = global_context ()
@@ -34,10 +34,10 @@ let string_type = pointer_type context
 
 (* Helper function to get LLVM type from value_type *)
 let llvm_type_of_value_type = function
-  | IntType -> int_type
-  | FloatType -> float_type
-  | StringType -> string_type
-  | BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
+  | Ast.IntType -> int_type
+  | Ast.FloatType -> float_type
+  | Ast.StringType -> string_type
+  | Ast.BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
 ;;
 
 (* Create an alloca instruction in the entry block of the function. This
@@ -51,10 +51,10 @@ let create_entry_block_alloca the_function var_name typ =
 
 (* Helper function to get the type of an expression *)
 let rec get_expr_type = function
-  | Int _ -> IntType
-  | Float _ -> FloatType
-  | String _ -> StringType
-  | Bool _ -> BoolType
+  | Int _ -> Ast.IntType
+  | Float _ -> Ast.FloatType
+  | String _ -> Ast.StringType
+  | Bool _ -> Ast.BoolType
   | Var name -> 
       (match Hashtbl.find named_values name with
        | Some typed_val -> typed_val.typ
@@ -269,71 +269,88 @@ let rec codegen_expr = function
           { value = build_zext cmp int_type "booltmp" builder; typ = BoolType })
 
 and codegen_stmt = function
+  (* Updated Assign case to include type checking *)
+  | Declare (var, declared_type, expr) ->
+   (* Generate code for the initializer expression *)
+   let init_typed = codegen_expr expr in
+
+   (* Check if the declared type matches the initializer type *)
+   if Poly.(=) (declared_type : Ast.value_type) (init_typed.typ : Ast.value_type) then
+     (* Create an alloca for the variable with the correct LLVM type *)
+     let the_function = block_parent (insertion_block builder) in
+     let alloca = create_entry_block_alloca the_function var (llvm_type_of_value_type declared_type) in
+
+     (* Add the variable to the symbol table *)
+     let typed_alloca = { value = alloca; typ = declared_type } in
+     Hashtbl.set named_values ~key:var ~data:typed_alloca;
+
+     (* Store the value in the allocated memory *)
+     let value_to_store =
+       match declared_type with
+       | Ast.FloatType ->
+           (* Convert the value to float if necessary *)
+           if Poly.(=) init_typed.typ Ast.IntType then
+             build_sitofp init_typed.value float_type "float_cast" builder
+           else
+             init_typed.value
+       | _ -> init_typed.value
+     in
+     ignore (build_store value_to_store alloca builder);
+
+     (* Return the initialized value *)
+     init_typed
+   else
+     (* Raise an error if the types do not match *)
+     raise (Failure (Printf.sprintf "Type mismatch in declaration: variable '%s' declared as %s but initialized with %s"
+                       var
+                       (match declared_type with
+                        | Ast.IntType -> "int"
+                        | Ast.FloatType -> "float"
+                        | Ast.StringType -> "string"
+                        | Ast.BoolType -> "bool")
+                       (match init_typed.typ with
+                        | Ast.IntType -> "int"
+                        | Ast.FloatType -> "float"
+                        | Ast.StringType -> "string"
+                        | Ast.BoolType -> "bool")))
   | Assign (var, expr) ->
     (* Evaluate the expression to get the value *)
     let value_typed = codegen_expr expr in
     
-    (* Look up the name or create it if this is the first use *)
+    (* Look up the name in the symbol table *)
     (match Hashtbl.find named_values var with
      | Some existing_var ->
-        (* Existing variable, update its value *)
-        (match existing_var.typ with
-         | StringType ->
-            (* For strings, just update the reference *)
-            Hashtbl.set named_values ~key:var ~data:value_typed;
-            value_typed
-         | FloatType ->
-            (* For floats, store in the alloca *)
-            ignore (build_store value_typed.value existing_var.value builder);
-            value_typed
-         | BoolType ->
-            (* For booleans, store in the alloca *)
-            ignore (build_store value_typed.value existing_var.value builder);
-            value_typed
-         | IntType ->
-            (* For ints, store in the alloca *)
-            ignore (build_store value_typed.value existing_var.value builder);
-            value_typed)
+        (* Check if the types match *)
+        if Poly.(=) existing_var.typ value_typed.typ then
+          (* Types match, update the value *)
+          (match existing_var.typ with
+           | StringType ->
+              (* For strings, just update the reference *)
+              Hashtbl.set named_values ~key:var ~data:value_typed;
+              value_typed
+           | _ ->
+              (* For other types, store in the alloca *)
+              ignore (build_store value_typed.value existing_var.value builder);
+              value_typed)
+        else
+          (* Types do not match, raise an error *)
+          raise (Failure (Printf.sprintf "Type mismatch: variable '%s' is of type %s but assigned value is of type %s"
+                            var
+                            (match existing_var.typ with
+                             | IntType -> "Int"
+                             | FloatType -> "Float"
+                             | StringType -> "String"
+                             | BoolType -> "Bool")
+                            (match value_typed.typ with
+                             | IntType -> "Int"
+                             | FloatType -> "Float"
+                             | StringType -> "String"
+                             | BoolType -> "Bool")))
      | None ->
-        (* New variable, handle based on type *)
-        (match expr with
-         | String _ ->
-            (* For strings, just store the pointer directly *)
-            Hashtbl.set named_values ~key:var ~data:value_typed;
-            value_typed
-         | Float _ ->
-            (* For floats, allocate space and store *)
-            let the_function = block_parent (insertion_block builder) in
-            let alloca = create_entry_block_alloca the_function var float_type in
-            ignore (build_store value_typed.value alloca builder);
-            let typed_alloca = { value = alloca; typ = FloatType } in
-            Hashtbl.set named_values ~key:var ~data:typed_alloca;
-            value_typed
-         | Bool _ ->
-            (* For booleans, allocate space and store *)
-            let the_function = block_parent (insertion_block builder) in
-            let alloca = create_entry_block_alloca the_function var int_type in
-            ignore (build_store value_typed.value alloca builder);
-            let typed_alloca = { value = alloca; typ = BoolType } in
-            Hashtbl.set named_values ~key:var ~data:typed_alloca;
-            value_typed
-         | Int _ ->
-            (* For ints, allocate space and store *)
-            let the_function = block_parent (insertion_block builder) in
-            let alloca = create_entry_block_alloca the_function var int_type in
-            ignore (build_store value_typed.value alloca builder);
-            let typed_alloca = { value = alloca; typ = IntType } in
-            Hashtbl.set named_values ~key:var ~data:typed_alloca;
-            value_typed
-         | _ ->
-            (* For other types, allocate space and store *)
-            let the_function = block_parent (insertion_block builder) in
-            let alloca = create_entry_block_alloca the_function var int_type in
-            ignore (build_store value_typed.value alloca builder);
-            let typed_alloca = { value = alloca; typ = IntType } in
-            Hashtbl.set named_values ~key:var ~data:typed_alloca;
-            value_typed))
-  
+        (* Variable not declared, raise an error *)
+        raise (Failure (Printf.sprintf "Variable '%s' not declared" var)))
+
+  (* Updated Let case to include type checking *)
   | Let (var, expr, body) ->
     (* Evaluate the initializer *)
     let init_typed = codegen_expr expr in

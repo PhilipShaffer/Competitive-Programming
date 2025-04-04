@@ -1,23 +1,8 @@
-y := 4;
-x := "hej";
-while y < 10 do {
-  y := y + 1;
-  print x
-};
-print 2 + 2 * 2;
-
-
-y := 4;
-x := "hej";
-while y < 10 do {
-  print y; y := y + 1;
-  let z := 5 in
-  print z;
-  print x
-};
-print 2 + 2 * 2;
-
-f := 1.01;
-print f
+y : int := 4;
+u : float := 4.293847;
+v : bool := false;
+print y;
+print u;
+print v
 
 
