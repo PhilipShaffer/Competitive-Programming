@@ -14,6 +14,10 @@
 %token <float> FLOAT
 %token <bool> BOOL      (* Boolean literals, carrying a bool value *)
 
+(* Type tokens *)
+%token INT_TYPE FLOAT_TYPE STRING_TYPE BOOL_TYPE
+%token ARROW
+
 (* Tokens for comparison operators *)
 %token LT LEQ GT GEQ EQ NEQ
 
@@ -27,7 +31,7 @@
 %token PLUS MINUS MULT DIV MOD
 
 (* Tokens for delimiters *)
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON
+%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON
 
 (* End-of-file token *)
 %token EOF
@@ -46,7 +50,6 @@
 %nonassoc UMINUS        (* Unary negation has highest precedence *)
 
 (* Start symbol declaration - specifies the entry point of the grammar *)
-(* The type annotation specifies what type the start symbol produces *)
 %start <Ast.stmt> main
 
 (* Grammar rules section - defines the grammar of the language *)
@@ -55,6 +58,31 @@
 (* The main rule - entry point of the parser *)
 main:
   | sl = stmt_list; EOF { Block sl }  (* Parse a statement followed by EOF, return the statement *)
+  ;
+
+(* Type rules *)
+value_type:
+  | INT_TYPE { IntType }
+  | FLOAT_TYPE { FloatType }
+  | STRING_TYPE { StringType }
+  | BOOL_TYPE { BoolType }
+  ;
+
+(* Parameter list rules *)
+param_list:
+  | { [] }
+  | p = param { [p] }
+  | p = param; COMMA; pl = param_list { p :: pl }
+  ;
+
+param:
+  | x = ID; COLON; t = value_type { (x, t) }
+  ;
+
+(* Function definition rules *)
+func_def:
+  | name = ID; COLON; LPAREN; params = param_list; RPAREN; ARROW; ret_type = value_type; ASSIGN; LBRACE; body = stmt_list; RBRACE
+    { Func (Prototype (name, params, ret_type), Block body) }
   ;
 
 (* Expression rules - define how expressions are parsed *)
@@ -91,6 +119,7 @@ stmt:
   | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)
   | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
   | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
+  | f = func_def                                          { f }                     (* Function definition *)
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)

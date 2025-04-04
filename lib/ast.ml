@@ -37,6 +37,10 @@ type expr =
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
+ | Call of string * expr list (* Function call: f(e1, e2, ...) *)
+
+(* Function prototype with name, parameter types, and return type *)
+type proto = Prototype of string * (string * value_type) list * value_type
 
 (* Statements - represent actions or commands *)
 type stmt =
@@ -46,3 +50,4 @@ type stmt =
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
+ | Func of proto * stmt      (* Function definition *)

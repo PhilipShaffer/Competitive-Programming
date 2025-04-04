@@ -2,15 +2,6 @@ open Llvm
 open Base
 open Ast
 
-(* 
- * FUTURE IMPROVEMENT NOTES:
- * This code could be improved by implementing a more structured type system:
- * 1. Created a value_type enum to represent types (Int, Float, String, Bool) ✓
- * 2. Associate types with values in a single data structure ✓
- * 3. Use pattern matching for type checking instead of equality comparisons ✓
- * 4. Implement a unified get_expr_type function to centralize type determination ✓
- *)
-
 (* Value type enum to represent types *)
 type value_type =
   | IntType
@@ -38,7 +29,7 @@ let llvm_type_of_value_type = function
   | FloatType -> float_type
   | StringType -> string_type
   | BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
-;;
+
 
 (* Create an alloca instruction in the entry block of the function. This
  * is used for mutable variables etc. *)

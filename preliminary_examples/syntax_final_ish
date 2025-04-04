@@ -63,11 +63,8 @@ x : int := 10
 float y = 10.0
 int z := x / y                             (hvordan casting lige sker vides ikke, men det skal se sådan ud)
 
-
-
-
 ### Functions
-minimum : int (x : int, y : int) := {
+minimum: (x : int, y : int) -> int := {
     ...
 }
 
