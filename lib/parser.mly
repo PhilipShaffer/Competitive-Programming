@@ -92,6 +92,7 @@ expr:
   | b = BOOL                     { Bool b }                (* Boolean literal *)
   | str = STRING                 { String str }
   | f = FLOAT                    { Float f }
+  | x = ID; LPAREN; args = expr_list; RPAREN { Call (x, args) }  (* Function call: f(x, y, z) *)
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
   | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
@@ -108,6 +109,13 @@ expr:
   | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
   | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
+  ;
+
+(* Argument list rules *)
+expr_list:
+  | { [] }
+  | e = expr { [e] }
+  | e = expr; COMMA; el = expr_list { e :: el }
   ;
 
 (* Statement rules - define how statements are parsed *)
