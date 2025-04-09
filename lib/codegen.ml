@@ -157,16 +157,18 @@ let rec codegen_expr = function
        | _ -> raise (Failure "unsupported operation on strings"))
     (* Check if either operand is a float and handle accordingly *)
     else if (match lhs_type, rhs_type with
-             | Ast.FloatType, _ | _, Ast.FloatType -> true
+             | Ast.FloatType, Ast.FloatType -> true        (* Changed from ast.f, _ || _, ast.f to not allow float + int*)
              | _ -> false) then
-      (* For float operations, we need to convert both operands to float if they're not already *)
+(*     
+      (* BRUG TIL TYPECASTING SENERE!!!!! *)
+             (* For float operations, we need to convert both operands to float if they're not already *)
       let lhs_val = 
         if Poly.(=) lhs_type Ast.FloatType then lhs_val 
-        else build_sitofp lhs_val float_type "float_cast" builder in
+        else build_sitofp lhs_val float_type "float_cast" builder in 
       let rhs_val = 
         if Poly.(=) rhs_type Ast.FloatType then rhs_val 
         else build_sitofp rhs_val float_type "float_cast" builder in
-      
+*)     
       (* Perform the float operation *)
       match op with
       | Add -> { value = build_fadd lhs_val rhs_val "addtmp" builder; typ = Ast.FloatType }
@@ -341,25 +343,13 @@ and codegen_stmt = function
               (* For strings, just update the reference *)
               Hashtbl.set named_values ~key:var ~data:value_typed;
               value_typed
-           | Ast.FloatType ->
-              (* Convert the assigned value to float if necessary *)
-              let value_to_store =
-                if Poly.(=) value_typed.typ Ast.IntType then
-                  build_sitofp value_typed.value float_type "float_cast" builder
-                else
-                  value_typed.value
-              in
-
-              (* Store the value in the allocated memory *)
-              ignore (build_store value_to_store existing_var.value builder);
-              { value = existing_var.value; typ = Ast.FloatType }
            | _ ->
               (* For other types, store in the alloca *)
               ignore (build_store value_typed.value existing_var.value builder);
               value_typed)
         else
           (* Types do not match, raise an error *)
-          raise (Failure (Printf.sprintf "Type mismatch: variable '%s' is of type %s but assigned value is of type %s"
+          raise (Failure (Printf.sprintf "Type mismatch: variable '%s' is of type %s but one or more of assigned values are of type %s"
                             var
                             (match existing_var.typ with
                              | Ast.IntType -> "Int"
