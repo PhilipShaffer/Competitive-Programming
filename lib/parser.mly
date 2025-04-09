@@ -95,7 +95,7 @@ stmt:
 (* Statement list rules - define how sequences of statements are parsed *)
 stmt_list:
   | s = stmt;                           { [s] }     (* Single statement *)
-  | s = stmt; SEMICOLON; sl = stmt_list { s :: sl } (* Multiple statements: s1; s2; ...; sn; *)
+  | s = stmt; SEMICOLON?; sl = stmt_list { s :: sl } (* Multiple statements: s1; s2; ...; sn; with optional semicolons *)
   ;
 
 type_expr:
