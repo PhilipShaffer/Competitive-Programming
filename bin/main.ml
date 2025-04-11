@@ -71,6 +71,7 @@ module Compiler = struct
     | ParseError of string
     | CompileError of string
     | RuntimeError of string
+    | SemanticError of string
 
   (* Parse source code into AST *)
   let parse (s : string) : (Ast.stmt, compiler_error) result =
@@ -92,6 +93,12 @@ module Compiler = struct
           (pos.Lexing.pos_cnum - pos.Lexing.pos_bol)))
     | e ->
         Error (ParseError (Printf.sprintf "Unexpected error: %s" (Printexc.to_string e)))
+
+  (* Perform semantic analysis on AST *)
+  let analyze_semantics ast =
+    match Semantics.analyze_program ast with
+    | Ok annotated_ast -> Ok annotated_ast
+    | Error e -> Error (SemanticError (Semantics.error_to_string e))
 
   (* Get compiler tool paths from environment or use defaults *)
   let get_tool_path tool default_path =
@@ -176,15 +183,19 @@ module Compiler = struct
     | Error e -> Error e
     | Ok ast -> 
         Printf.printf "Parsing successful!\n";
-        match compile_to target output_name ast with
+        match analyze_semantics ast with
         | Error e -> Error e
-        | Ok executable ->
-            if target = Executable then
-              match run executable with
-              | Ok _exit_code -> Ok executable
-              | Error e -> Error e
-            else
-              Ok executable
+        | Ok annotated_ast ->
+            Printf.printf "Semantic analysis successful!\n";
+            match compile_to target output_name annotated_ast with
+            | Error e -> Error e
+            | Ok executable ->
+                if target = Executable then
+                  match run executable with
+                  | Ok _exit_code -> Ok executable
+                  | Error e -> Error e
+                else
+                  Ok executable
 end
 
 let () =
@@ -223,6 +234,9 @@ let () =
   | Ok output -> Printf.printf "Compilation successful! Output: %s\n" output
   | Error (Compiler.ParseError msg) -> 
       Printf.eprintf "Parse error: %s\n" msg;
+      exit 1
+  | Error (Compiler.SemanticError msg) ->
+      Printf.eprintf "Semantic error: %s\n" msg;
       exit 1
   | Error (Compiler.CompileError msg) -> 
       Printf.eprintf "Compilation error: %s\n" msg;
