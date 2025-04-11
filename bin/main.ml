@@ -46,10 +46,12 @@ let print_tokens s =
           | Parser.LBRACE -> "LBRACE"
           | Parser.RBRACE -> "RBRACE"
           | Parser.SEMICOLON -> "SEMICOLON"
-          | Parser.INTTYPE -> "INTTYPE"
-          | Parser.FLOATTYPE -> "FLOATTYPE"
-          | Parser.STRINGTYPE -> "STRINGTYPE"
-          | Parser.BOOLTYPE -> "BOOLTYPE"
+          | Parser.INT_TYPE -> "INT_TYPE"
+          | Parser.FLOAT_TYPE -> "FLOAT_TYPE"
+          | Parser.STRING_TYPE -> "STRING_TYPE"
+          | Parser.BOOL_TYPE -> "BOOL_TYPE"
+          | Parser.ARROW -> "ARROW"
+          | Parser.RETURN -> "RETURN"
           | Parser.EOF -> "EOF"
         );
         loop ()

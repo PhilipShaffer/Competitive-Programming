@@ -1,6 +1,10 @@
-let x := 5+4 in
-let y := 10 in
+add(n : int, m : int) -> int {
+  return n + m
+}
+
+x : int := 5
+y : int := 10
 if x < y then
-  print x
+  print add(x, y)
 else
   print y

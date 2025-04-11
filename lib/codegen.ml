@@ -1,17 +1,6 @@
 open Llvm
-open Base
 open Ast
 
-(* 
- * FUTURE IMPROVEMENT NOTES:
- * This code could be improved by implementing a more structured type system:
- * 1. Created a value_type enum to represent types (Int, Float, String, Bool) ✓
- * 2. Associate types with values in a single data structure ✓
- * 3. Use pattern matching for type checking instead of equality comparisons ✓
- * 4. Implement a unified get_expr_type function to centralize type determination ✓
- *)
-
-(* Value type enum to represent types *)
 
 (* Typed value structure to associate types with values *)
 type typed_value = {
@@ -22,7 +11,8 @@ type typed_value = {
 let context = global_context ()
 let the_module = create_module context "main"
 let builder = builder context
-let named_values : (string, typed_value) Hashtbl.t = Hashtbl.create (module String)
+let named_values : (string, typed_value) Base.Hashtbl.t = 
+   Base.Hashtbl.create (module Base.String)
 let int_type = i64_type context
 let float_type = double_type context (* double type chosen from LLVM - > Ocaml documenetation. float_type does NOT work*)
 let string_type = pointer_type context
@@ -50,15 +40,27 @@ let rec get_expr_type = function
   | Float _ -> Ast.FloatType
   | String _ -> Ast.StringType
   | Bool _ -> Ast.BoolType
+  | Call (name, _) ->
+      (* For now, assume function calls return int type if not found *)
+      (try
+         match lookup_function name the_module with
+         | Some f ->
+             let ret_ty = return_type (type_of f) in
+             if ret_ty = int_type then Ast.IntType
+             else if ret_ty = float_type then Ast.FloatType
+             else if ret_ty = string_type then Ast.StringType
+             else Ast.IntType
+         | None -> Ast.IntType
+       with _ -> Ast.IntType)
   | Var name -> 
-      (match Hashtbl.find named_values name with
+      (match Base.Hashtbl.find named_values name with
        | Some typed_val -> typed_val.typ
        | None -> Ast.IntType)  (* Default to IntType if not found *)
   | Binop (op, lhs, rhs) ->
       (match op with
        | Add | Sub | Mult | Div | Mod -> 
            (* Check if either operand is float, result is float, otherwise int *)
-           if Poly.(=) (get_expr_type lhs) Ast.FloatType || Poly.(=) (get_expr_type rhs) Ast.FloatType then
+           if Base.Poly.(=) (get_expr_type lhs) Ast.FloatType || Base.Poly.(=) (get_expr_type rhs) Ast.FloatType then
             Ast.FloatType
            else
              Ast.IntType
@@ -70,18 +72,18 @@ let rec get_expr_type = function
        | Neg -> 
            (* Negation preserves the type (float or int) *)
            let typ = get_expr_type expr in
-           if Poly.(=) typ Ast.FloatType then Ast.FloatType else Ast.IntType
+           if Base.Poly.(=) typ Ast.FloatType then Ast.FloatType else Ast.IntType
        | Not -> 
            (* Logical not always returns boolean *)
            Ast.BoolType)
 ;;
 
 (* Helper function to check if an expression is a string *)
-let is_string_expr expr = Poly.(=) (get_expr_type expr) Ast.StringType
+let is_string_expr expr = Base.Poly.(=) (get_expr_type expr) Ast.StringType
 ;;
 
 (* Helper function to check if an expression is a float *)
-let is_float_expr expr = Poly.(=) (get_expr_type expr) Ast.FloatType
+let is_float_expr expr = Base.Poly.(=) (get_expr_type expr) Ast.FloatType
 ;;
 
 (* Helper function to extract the LLVM value from a typed_value or directly use a raw llvalue *)
@@ -91,7 +93,7 @@ let get_llvm_value v = v.value
 let rec codegen_expr = function
   | Var name ->
     (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values name with
+    (match Base.Hashtbl.find named_values name with
      | Some value ->
         (* Determine how to handle the value based on its type *)
         (match value.typ with
@@ -121,6 +123,39 @@ let rec codegen_expr = function
   | String s ->
     (* For string literals, create a global string pointer *)
     { value = build_global_stringptr s "str" builder; typ = Ast.StringType }
+  
+  | Call (name, args) ->
+      (* Look up the function name in the module table *)
+      let callee =
+        match lookup_function name the_module with
+        | Some callee -> callee
+        | None -> raise (Failure ("Unknown function: " ^ name))
+      in
+      
+      (* Check correct argument count *)
+      let param_count = Array.length (params callee) in
+      if List.length args != param_count then
+        raise (Failure (Printf.sprintf "Function %s called with wrong number of arguments (expected %d, got %d)" 
+                         name param_count (List.length args)))
+      else
+        (* Generate code for each argument *)
+        let arg_values = List.map codegen_expr args in
+        let arg_llvm_values = List.map (fun v -> v.value) arg_values in
+        
+        (* Call the function *)
+        let call_ty = type_of callee in
+        let result = build_call call_ty callee (Array.of_list arg_llvm_values) "calltmp" builder in
+        
+        (* Determine return type *)
+        let ret_ty = return_type call_ty in
+        if ret_ty = int_type then
+          { value = result; typ = Ast.IntType }
+        else if ret_ty = float_type then
+          { value = result; typ = Ast.FloatType }
+        else if ret_ty = string_type then
+          { value = result; typ = Ast.StringType }
+        else
+          { value = result; typ = Ast.IntType }
   
   | Binop (op, lhs, rhs) ->
     let lhs_typed = codegen_expr lhs in
@@ -252,13 +287,13 @@ let rec codegen_expr = function
     
     (match op with
      | Neg -> 
-        if Poly.(=) expr_type Ast.FloatType then
+        if Base.Poly.(=) expr_type Ast.FloatType then
           { value = build_fneg expr_val "negtmp" builder; typ = Ast.FloatType }
         else
           { value = build_neg expr_val "negtmp" builder; typ = Ast.IntType }
      | Not ->
         (* For logical not, we check if the expression is equal to 0 (false) *)
-        if Poly.(=) expr_type Ast.FloatType then
+        if Base.Poly.(=) expr_type Ast.FloatType then
           let cmp = build_fcmp Fcmp.Oeq expr_val (const_float float_type 0.0) "cmptmp" builder in
           { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
         else
@@ -272,11 +307,11 @@ and codegen_stmt = function
    let init_typed = codegen_expr expr in
 
    (* Check if the declared type matches the initializer type *)
-   if Poly.(=) (declared_type : Ast.value_type) (init_typed.typ : Ast.value_type) then
+   if Base.Poly.(=) (declared_type : Ast.value_type) (init_typed.typ : Ast.value_type) then
      (match declared_type with
       | Ast.StringType ->
          (* For strings, just store the reference directly *)
-         Hashtbl.set named_values ~key:var ~data:init_typed;
+         Base.Hashtbl.set named_values ~key:var ~data:init_typed;
          init_typed
       | Ast.FloatType ->
          (* Create an alloca for floats *)
@@ -285,11 +320,11 @@ and codegen_stmt = function
 
          (* Add the variable to the symbol table *)
          let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+         Base.Hashtbl.set named_values ~key:var ~data:typed_alloca;
 
          (* Convert the initializer value to float if necessary *)
          let value_to_store =
-           if Poly.(=) init_typed.typ Ast.IntType then
+           if Base.Poly.(=) init_typed.typ Ast.IntType then
              build_sitofp init_typed.value float_type "float_cast" builder
            else
              init_typed.value
@@ -307,7 +342,7 @@ and codegen_stmt = function
 
          (* Add the variable to the symbol table *)
          let typed_alloca = { value = alloca; typ = declared_type } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+         Base.Hashtbl.set named_values ~key:var ~data:typed_alloca;
 
          (* Store the value in the allocated memory *)
          ignore (build_store init_typed.value alloca builder);
@@ -333,15 +368,15 @@ and codegen_stmt = function
     let value_typed = codegen_expr expr in
     
     (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values var with
+    (match Base.Hashtbl.find named_values var with
      | Some existing_var ->
         (* Check if the types match *)
-        if Poly.(=) existing_var.typ value_typed.typ then
+        if Base.Poly.(=) existing_var.typ value_typed.typ then
           (* Types match, update the value *)
           (match existing_var.typ with
            | Ast.StringType ->
               (* For strings, just update the reference *)
-              Hashtbl.set named_values ~key:var ~data:value_typed;
+              Base.Hashtbl.set named_values ~key:var ~data:value_typed;
               value_typed
            | _ ->
               (* For other types, store in the alloca *)
@@ -371,49 +406,49 @@ and codegen_stmt = function
     let init_typed = codegen_expr expr in
     
     (* Save the old variable binding if it exists *)
-    let old_binding = Hashtbl.find named_values var in
+    let old_binding = Base.Hashtbl.find named_values var in
     
     (* Handle based on the expression type *)
     (match expr with
      | String _ ->
         (* For strings, just store the pointer directly *)
-        Hashtbl.set named_values ~key:var ~data:init_typed;
+        Base.Hashtbl.set named_values ~key:var ~data:init_typed;
      | Float _ ->
         (* For floats, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var float_type in
         ignore (build_store init_typed.value alloca builder);
         let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        Base.Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | Bool _ ->
         (* For booleans, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
         let typed_alloca = { value = alloca; typ = Ast.BoolType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        Base.Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | Int _ ->
         (* For ints, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
         let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        Base.Hashtbl.set named_values ~key:var ~data:typed_alloca;
      | _ ->
         (* For other types, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
         let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca);
+        Base.Hashtbl.set named_values ~key:var ~data:typed_alloca);
     
     (* Generate code for the body *)
     let body_typed = codegen_stmt body in
     
     (* Restore the old binding if it existed *)
     (match old_binding with
-     | Some old_value -> Hashtbl.set named_values ~key:var ~data:old_value
-     | None -> Hashtbl.remove named_values var);
+     | Some old_value -> Base.Hashtbl.set named_values ~key:var ~data:old_value
+     | None -> Base.Hashtbl.remove named_values var);
     
     (* Return the value of the body *)
     body_typed
@@ -425,7 +460,7 @@ and codegen_stmt = function
     
     (* Convert condition to a boolean value *)
     let cond_val = 
-      if Poly.(=) cond_type Ast.FloatType then
+      if Base.Poly.(=) cond_type Ast.FloatType then
         (* For float conditions, compare with 0.0 *)
         let zero = const_float float_type 0.0 in
         build_fcmp Fcmp.One cond_typed.value zero "ifcond" builder
@@ -491,7 +526,7 @@ and codegen_stmt = function
     let cond_type = get_expr_type cond in
     
     let cond_val = 
-      if Poly.(=) cond_type Ast.FloatType then
+      if Base.Poly.(=) cond_type Ast.FloatType then
         (* For float conditions, compare with 0.0 *)
         let zero = const_float float_type 0.0 in
         build_fcmp Fcmp.One cond_typed.value zero "whilecond" builder
@@ -538,6 +573,37 @@ and codegen_stmt = function
     (* Return a constant 0 instead of the value, to avoid affecting program return *)
     { value = const_int int_type 0; typ = Ast.IntType }
   
+  | Return None ->
+      (* Return void *)
+      ignore (build_ret_void builder);
+      
+      (* Return a dummy value since control flow ends *)
+      { value = const_int int_type 0; typ = Ast.IntType }
+      
+  | Return (Some expr) ->
+      (* Check if we're inside a function *)
+      let current_fn = block_parent (insertion_block builder) in
+      
+      (* Generate code for the return value *)
+      let ret_val = codegen_expr expr in
+      
+      (* Get function return type *)
+      let ret_ty = return_type (type_of current_fn) in
+      
+      (* Convert the return value to the function's return type if needed *)
+      let ret_val_to_return =
+        if ret_ty = float_type && ret_val.typ = Ast.IntType then
+          build_sitofp ret_val.value float_type "float_cast" builder
+        else
+          ret_val.value
+      in
+      
+      (* Create the return instruction *)
+      ignore (build_ret ret_val_to_return builder);
+      
+      (* Return a dummy value since control flow ends *)
+      { value = ret_val.value; typ = ret_val.typ }
+  
   | Block stmts ->
     (* Execute each statement in the block and return the value of the last one *)
     let rec process_stmts = function
@@ -549,23 +615,117 @@ and codegen_stmt = function
     in
     process_stmts stmts
 
+  | Function (name, params, ret_type_opt, body) ->
+      (* Check if function already exists in module *)
+      match lookup_function name the_module with
+      | Some _ -> raise (Failure ("Function already defined: " ^ name))
+      | None ->
+          (* Create return type *)
+          let ret_type_llvm = match ret_type_opt with
+            | Some ret_type -> llvm_type_of_value_type ret_type
+            | None -> int_type  (* Default to int if no return type specified *)
+          in
+          
+          (* Create parameter types *)
+          let param_types = 
+            Array.of_list (List.map (fun (_, ty) -> llvm_type_of_value_type ty) params)
+          in
+          
+          (* Create function type *)
+          let func_type = function_type ret_type_llvm param_types in
+          
+          (* Create function *)
+          let the_function = declare_function name func_type the_module in
+          
+          (* Create a new basic block to start insertion into *)
+          let bb = append_block context "entry" the_function in
+          position_at_end bb builder;
+          
+          (* Save old bindings to restore after function generation *)
+          let old_bindings = Base.Hashtbl.to_alist named_values in
+          
+          (* Clear out the symbol table for new function *)
+          Base.Hashtbl.clear named_values;
+          
+          (* Create parameter allocas and store values *)
+          let param_idx = ref 0 in
+          iter_params (fun llvm_param ->
+              if !param_idx < List.length params then
+                let (param_name, param_type) = List.nth params !param_idx in
+                
+                (* Create alloca for this variable *)
+                let llvm_type = llvm_type_of_value_type param_type in
+                let alloca = create_entry_block_alloca the_function param_name llvm_type in
+                
+                (* Store the initial value into the alloca *)
+                ignore (build_store llvm_param alloca builder);
+                
+                (* Add arguments to the symbol table *)
+                Base.Hashtbl.set named_values ~key:param_name ~data:{ value = alloca; typ = param_type };
+                
+                (* Move to next parameter *)
+                param_idx := !param_idx + 1
+          ) the_function;
+          
+          (* Codegen function body *)
+          ignore (codegen_stmt body);
+          
+          (* Add a return instruction if the last instruction isn't already a return *)
+          let bb = insertion_block builder in
+          
+          (* Check if the current block has a terminator *)
+          (match block_terminator bb with
+           | Some _ -> () (* Block already has a terminator, don't add a return *)
+           | None ->
+               (* No terminator, add a return instruction *)
+               if ret_type_llvm = void_type context then
+                 ignore (build_ret_void builder)
+               else
+                 (* For non-void functions without explicit return, return a default value *)
+                 let default_ret_val = 
+                   if ret_type_llvm = int_type then
+                     const_int int_type 0
+                   else if ret_type_llvm = float_type then
+                     const_float float_type 0.0
+                   else if ret_type_llvm = string_type then
+                     build_global_stringptr "" "default_ret" builder
+                   else
+                     const_int int_type 0
+                 in
+                 ignore (build_ret default_ret_val builder)
+          );
+          
+          (* Restore previous named values *)
+          Base.Hashtbl.clear named_values;
+          List.iter 
+            (fun (name, value) -> Base.Hashtbl.set named_values ~key:name ~data:value)
+            old_bindings;
+          
+          (* Verify generated code is well formed *)
+          ignore (Llvm_analysis.verify_function the_function);
+          
+          { value = const_int int_type 0; typ = Ast.IntType }
+
 (* Top-level function to compile a program *)
 let compile program =
-  (* Create main function *)
-  let main_ty = function_type int_type [| |] in
-  let main_fn = declare_function "main" main_ty the_module in
-  
-  (* Create entry block in main function *)
-  let entry = append_block context "entry" main_fn in
-  position_at_end entry builder;
-  
-  (* Generate code for the program *)
-  let _ = codegen_stmt program in
-  
-  (* Return 0 from main function (standard success exit code) *)
-  ignore (build_ret (const_int int_type 0) builder);
-  
-  (* Verify the module *)
-  Llvm_analysis.assert_valid_module the_module;
-  
-  the_module
+  match program with
+  | Block stmts -> 
+      (* Create main function *)
+      let main_ty = function_type int_type [| |] in
+      let main_fn = declare_function "main" main_ty the_module in
+      
+      (* Create entry block in main function *)
+      let entry = append_block context "entry" main_fn in
+      position_at_end entry builder;
+      
+      (* Generate code for each statement *)
+      List.iter (fun stmt -> ignore (codegen_stmt stmt)) stmts;
+      
+      (* Return 0 from main function (standard success exit code) *)
+      ignore (build_ret (const_int int_type 0) builder);
+      
+      (* Verify the module *)
+      Llvm_analysis.assert_valid_module the_module;
+      
+      the_module
+  | _ -> failwith "Expected program to be a block of statements"

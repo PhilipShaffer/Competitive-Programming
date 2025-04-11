@@ -49,9 +49,10 @@ type stmt =
  | Print of expr                          (* Print statement: print expr *)
  | Block of stmt list                     (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
  | Return of expr option                  (* Return statement: return expr *)
+ | Function of string * (string * value_type) list * value_type option * stmt  (* Function declaration: name, params, return_type, body *)
 
 (* Function prototype: func_name(para1 : type, para2 : type, ...) -> return_type *)
-type proto = Prototype of string * (string * value_type) list * value_type
+type proto = Prototype of string * (string * value_type) list * value_type option
 
 (* Functions - represents a function definition itself *)
 type func = Function of proto * stmt      (* Function declaration: prototype {stmt1, stmt2, ...} *)

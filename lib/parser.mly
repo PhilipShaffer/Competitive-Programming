@@ -116,7 +116,7 @@ type_expr:
 func:
   | name = ID; LPAREN; params = separated_list(COMMA, param); RPAREN; 
     return_type = option(preceded(ARROW, type_expr)); LBRACE; body = stmt; RBRACE 
-    { Function (Prototype (name, params, return_type), body) }
+    { Function (name, params, return_type, body) }
   ;
 
 param:
