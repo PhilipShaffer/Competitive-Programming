@@ -1,2 +1,9 @@
 (test
- (name test_Competitive_Programming))
+ (name test_Competitive_Programming)
+ (libraries competitive_programming ounit2))
+
+
+
+
+
+
