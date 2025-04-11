@@ -7,6 +7,12 @@ type value_type =
   | StringType
   | BoolType
 
+(* Type information for expressions *)
+type type_info = {
+  expr_type: value_type;
+  pos: int option;  (* Optional position information *)
+}
+
 (* Unary operators - operations that take a single operand *)
 type uop =
   | Neg   (* Arithmetic negation: -e *)
@@ -28,8 +34,8 @@ type bop =
   | Or    (* Logical OR: e1 or e2 *)
   | Mod   (* Modulo: e1 % e2 *)
 
-(* Expressions - represent computations that produce values *)
-type expr =
+(* Raw expressions without type information *)
+type raw_expr =
  | Var of string             (* Variable reference: x *)
  | Int of int                (* Integer literal: 42 *)
  | String of string
@@ -37,6 +43,12 @@ type expr =
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
+
+(* Typed expressions - expressions with type information *)
+and expr = {
+  expr: raw_expr;
+  type_info: type_info option;  (* None for unannotated expressions *)
+}
 
 (* Statements - represent actions or commands *)
 type stmt =

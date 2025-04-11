@@ -39,7 +39,6 @@ let print_tokens s =
           | Parser.LET -> "LET"
           | Parser.IN -> "IN"
           | Parser.COLON -> "COLON"
-          | Parser.COMMA -> "COMMA"
           | Parser.ASSIGN -> "ASSIGN"
           | Parser.LPAREN -> "LPAREN"
           | Parser.RPAREN -> "RPAREN"

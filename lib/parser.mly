@@ -4,6 +4,9 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Ast  (* Import the AST module to use its types *)
+
+  (* Helper function to create an unannotated expression *)
+  let mk_expr e = { expr = e; type_info = None }
 %}
 
 %token INTTYPE FLOATTYPE STRINGTYPE BOOLTYPE
@@ -27,14 +30,12 @@
 %token PLUS MINUS MULT DIV MOD
 
 (* Tokens for delimiters *)
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON COMMA
+%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON
 %token EOF
 
 (* Precedence and associativity declarations - lower lines have higher precedence *)
 (* These declarations help resolve ambiguities in the grammar *)
 (* For example, in "a + b * c", * has higher precedence than +, so it binds tighter *)
-%nonassoc IN            (* 'in' has lowest precedence *)
-%nonassoc ELSE          (* 'else' has low precedence to handle the dangling else problem *)
 %left OR                (* 'or' is left-associative: a or b or c = (a or b) or c *)
 %left AND               (* 'and' is left-associative and has higher precedence than 'or' *)
 %nonassoc LT LEQ GT GEQ EQ NEQ  (* Comparison operators are non-associative *)
@@ -57,26 +58,26 @@ main:
 
 (* Expression rules - define how expressions are parsed *)
 expr:
-  | x = ID                       { Var x }                 (* Variable reference *)
-  | i = INT                      { Int i }                 (* Integer literal *)
-  | b = BOOL                     { Bool b }                (* Boolean literal *)
-  | str = STRING                 { String str }
-  | f = FLOAT                    { Float f }
-  | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
-  | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
-  | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
-  | e1 = expr; DIV;   e2 = expr  { Binop (Div, e1, e2) }   (* Division: e1 / e2 *)
-  | e1 = expr; LT;    e2 = expr  { Binop (Lt, e1, e2) }    (* Less than: e1 < e2 *)
-  | e1 = expr; LEQ;   e2 = expr  { Binop (Leq, e1, e2) }   (* Less than or equal: e1 <= e2 *)
-  | e1 = expr; GT;    e2 = expr  { Binop (Gt, e1, e2) }    (* Greater than: e1 > e2 *)
-  | e1 = expr; GEQ;   e2 = expr  { Binop (Geq, e1, e2) }   (* Greater than or equal: e1 >= e2 *)
-  | e1 = expr; EQ;    e2 = expr  { Binop (Eq, e1, e2) }    (* Equality: e1 == e2 *)
-  | e1 = expr; NEQ;   e2 = expr  { Binop (Neq, e1, e2) }   (* Inequality: e1 != e2 *)
-  | e1 = expr; AND;   e2 = expr  { Binop (And, e1, e2) }   (* Logical AND: e1 and e2 *)
-  | e1 = expr; OR;    e2 = expr  { Binop (Or, e1, e2) }    (* Logical OR: e1 or e2 *)
-  | e1 = expr; MOD;   e2 = expr  { Binop (Mod, e1, e2) }   (* Modulo: e1 % e2 *)
-  | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
-  | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
+  | x = ID                       { mk_expr (Var x) }                 (* Variable reference *)
+  | i = INT                      { mk_expr (Int i) }                 (* Integer literal *)
+  | b = BOOL                     { mk_expr (Bool b) }                (* Boolean literal *)
+  | str = STRING                 { mk_expr (String str) }
+  | f = FLOAT                    { mk_expr (Float f) }
+  | e1 = expr; PLUS;  e2 = expr  { mk_expr (Binop (Add, e1, e2)) }   (* Addition: e1 + e2 *)
+  | e1 = expr; MINUS; e2 = expr  { mk_expr (Binop (Sub, e1, e2)) }   (* Subtraction: e1 - e2 *)
+  | e1 = expr; MULT;  e2 = expr  { mk_expr (Binop (Mult, e1, e2)) }  (* Multiplication: e1 * e2 *)
+  | e1 = expr; DIV;   e2 = expr  { mk_expr (Binop (Div, e1, e2)) }   (* Division: e1 / e2 *)
+  | e1 = expr; LT;    e2 = expr  { mk_expr (Binop (Lt, e1, e2)) }    (* Less than: e1 < e2 *)
+  | e1 = expr; LEQ;   e2 = expr  { mk_expr (Binop (Leq, e1, e2)) }   (* Less than or equal: e1 <= e2 *)
+  | e1 = expr; GT;    e2 = expr  { mk_expr (Binop (Gt, e1, e2)) }    (* Greater than: e1 > e2 *)
+  | e1 = expr; GEQ;   e2 = expr  { mk_expr (Binop (Geq, e1, e2)) }   (* Greater than or equal: e1 >= e2 *)
+  | e1 = expr; EQ;    e2 = expr  { mk_expr (Binop (Eq, e1, e2)) }    (* Equality: e1 == e2 *)
+  | e1 = expr; NEQ;   e2 = expr  { mk_expr (Binop (Neq, e1, e2)) }   (* Inequality: e1 != e2 *)
+  | e1 = expr; AND;   e2 = expr  { mk_expr (Binop (And, e1, e2)) }   (* Logical AND: e1 and e2 *)
+  | e1 = expr; OR;    e2 = expr  { mk_expr (Binop (Or, e1, e2)) }    (* Logical OR: e1 or e2 *)
+  | e1 = expr; MOD;   e2 = expr  { mk_expr (Binop (Mod, e1, e2)) }   (* Modulo: e1 % e2 *)
+  | NOT; e = expr                { mk_expr (Unop (Not, e)) }         (* Logical NOT: not e *)
+  | MINUS; e = expr %prec UMINUS { mk_expr (Unop (Neg, e)) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
   ;
 

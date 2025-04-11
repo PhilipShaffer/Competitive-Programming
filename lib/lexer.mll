@@ -58,7 +58,6 @@ rule read =
   | "{"     { LBRACE }  (* Left brace *)
   | "}"     { RBRACE }  (* Right brace *)
   | ";"     { SEMICOLON }  (* Semicolon *)
-  | ","     { COMMA }  (* Comma *)
   | ":"     { COLON }  (* Colon *)
   | eof     { EOF }  (* End-of-file *)
 
