@@ -1,5 +1,5 @@
-let x := 5+4 in
-let y := 10 in
+x : int := 5
+y : int := 10
 if x < y then
   print x
 else
