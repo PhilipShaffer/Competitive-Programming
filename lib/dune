@@ -1,7 +1,8 @@
 (library
  (name competitive_programming)
  (libraries llvm llvm.analysis llvm.bitreader llvm.bitwriter base stdio)
- (modules ast parser lexer codegen))
+ (modules ast parser lexer codegen env)
+)
 
 (menhir
  (modules parser))

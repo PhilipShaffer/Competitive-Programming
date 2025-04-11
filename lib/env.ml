@@ -3,18 +3,11 @@ open Base
 open Ast
 
 (* Environment entry types *)
-type env_entry = 
-  | VarEntry of {
-      name: string;
-      typ: value_type;
-      mutable value: llvalue option;  (* LLVM value, None until assigned *)
-    }
-  | FunEntry of {
-      name: string;
-      param_types: value_type list;
-      return_type: value_type;
-      llvm_function: llvalue;
-    }
+type env_entry = {
+  name: string;
+  typ: value_type;
+  mutable value: llvalue option;  (* LLVM value, None until assigned *)
+}
 
 (* Environment structure *)
 type environment = {
@@ -39,40 +32,24 @@ let rec lookup env name =
 
 (* Add a variable to the environment *)
 let add_var env name typ =
-  let entry = VarEntry { name; typ; value = None } in
-  Hashtbl.set env.entries ~key:name ~data:entry;
-  entry
-
-(* Add a function to the environment *)
-let add_fun env name param_types return_type llvm_function =
-  let entry = FunEntry { name; param_types; return_type; llvm_function } in
+  let entry = { name; typ; value = None } in
   Hashtbl.set env.entries ~key:name ~data:entry;
   entry
 
 (* Update a variable's LLVM value *)
 let update_var_value env name value =
   match lookup env name with
-  | Some (VarEntry entry) -> entry.value <- Some value
-  | _ -> failwith ("Variable " ^ name ^ " not found or not a variable")
+  | Some entry -> entry.value <- Some value
+  | None -> failwith ("Variable " ^ name ^ " not found")
 
 (* Get a variable's type *)
 let get_var_type env name =
   match lookup env name with
-  | Some (VarEntry entry) -> entry.typ
-  | _ -> failwith ("Variable " ^ name ^ " not found or not a variable")
+  | Some entry -> entry.typ
+  | None -> failwith ("Variable " ^ name ^ " not found")
 
-(* Get a function's LLVM value *)
-let get_fun_value env name =
+(* Get a variable's LLVM value *)
+let get_var_value env name =
   match lookup env name with
-  | Some (FunEntry entry) -> entry.llvm_function
-  | _ -> failwith ("Function " ^ name ^ " not found or not a function")
-
-(* Initialize built-in functions *)
-let init_builtins env context builder =
-  (* Add print function *)
-  let print_type = function_type void_type context [| pointer_type i8_type context |] in
-  let print_fun = declare_function "printf" print_type the_module in
-  add_fun env "print" [StringType] VoidType print_fun;
-
-  (* Add other built-in functions here as needed *)
-  () 
+  | Some entry -> entry.value
+  | None -> failwith ("Variable " ^ name ^ " not found") 

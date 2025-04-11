@@ -22,10 +22,12 @@ type typed_value = {
 let context = global_context ()
 let the_module = create_module context "main"
 let builder = builder context
-let named_values : (string, typed_value) Hashtbl.t = Hashtbl.create (module String)
 let int_type = i64_type context
 let float_type = double_type context (* double type chosen from LLVM - > Ocaml documenetation. float_type does NOT work*)
 let string_type = pointer_type context
+
+(* Create the global environment *)
+let global_env = Env.create_env ()
 
 (* Helper function to get LLVM type from value_type *)
 let llvm_type_of_value_type = function
@@ -51,8 +53,8 @@ let rec get_expr_type = function
   | String _ -> Ast.StringType
   | Bool _ -> Ast.BoolType
   | Var name -> 
-      (match Hashtbl.find named_values name with
-       | Some typed_val -> typed_val.typ
+      (match Env.lookup global_env name with
+       | Some entry -> entry.typ
        | None -> Ast.IntType)  (* Default to IntType if not found *)
   | Binop (op, lhs, rhs) ->
       (match op with
@@ -90,23 +92,23 @@ let get_llvm_value v = v.value
 
 let rec codegen_expr = function
   | Var name ->
-    (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values name with
-     | Some value ->
+    (* Look up the name in the environment *)
+    (match Env.lookup global_env name with
+     | Some entry ->
         (* Determine how to handle the value based on its type *)
-        (match value.typ with
+        (match entry.typ with
          | Ast.StringType -> 
             (* For string variables, just return the pointer *)
-            value
+            { value = Option.value_exn entry.value; typ = Ast.StringType }
          | Ast.FloatType ->
             (* For float variables, load from the alloca *)
-            { value = build_load float_type value.value name builder; typ = Ast.FloatType }
+            { value = build_load float_type (Option.value_exn entry.value) name builder; typ = Ast.FloatType }
          | Ast.BoolType ->
             (* For boolean variables, load from the alloca *)
-            { value = build_load int_type value.value name builder; typ = Ast.BoolType }
+            { value = build_load int_type (Option.value_exn entry.value) name builder; typ = Ast.BoolType }
          | Ast.IntType ->
             (* For int variables, load from the alloca *)
-            { value = build_load int_type value.value name builder; typ = Ast.IntType })
+            { value = build_load int_type (Option.value_exn entry.value) name builder; typ = Ast.IntType })
      | None -> raise (Failure ("unknown variable name: " ^ name)))
   
   | Int n -> 
@@ -159,16 +161,6 @@ let rec codegen_expr = function
     else if (match lhs_type, rhs_type with
              | Ast.FloatType, Ast.FloatType -> true        (* Changed from ast.f, _ || _, ast.f to not allow float + int*)
              | _ -> false) then
-(*     
-      (* BRUG TIL TYPECASTING SENERE!!!!! *)
-             (* For float operations, we need to convert both operands to float if they're not already *)
-      let lhs_val = 
-        if Poly.(=) lhs_type Ast.FloatType then lhs_val 
-        else build_sitofp lhs_val float_type "float_cast" builder in 
-      let rhs_val = 
-        if Poly.(=) rhs_type Ast.FloatType then rhs_val 
-        else build_sitofp rhs_val float_type "float_cast" builder in
-*)     
       (* Perform the float operation *)
       match op with
       | Add -> { value = build_fadd lhs_val rhs_val "addtmp" builder; typ = Ast.FloatType }
@@ -266,7 +258,7 @@ let rec codegen_expr = function
           { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType })
 
 and codegen_stmt = function
-  (* Updated Assign case to include type checking *)
+  (* Updated Declare case to use environment *)
   | Declare (var, declared_type, expr) ->
    (* Generate code for the initializer expression *)
    let init_typed = codegen_expr expr in
@@ -276,16 +268,17 @@ and codegen_stmt = function
      (match declared_type with
       | Ast.StringType ->
          (* For strings, just store the reference directly *)
-         Hashtbl.set named_values ~key:var ~data:init_typed;
+         ignore (Env.add_var global_env var declared_type);
+         Env.update_var_value global_env var init_typed.value;
          init_typed
       | Ast.FloatType ->
          (* Create an alloca for floats *)
          let the_function = block_parent (insertion_block builder) in
          let alloca = create_entry_block_alloca the_function var float_type in
 
-         (* Add the variable to the symbol table *)
-         let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+         (* Add the variable to the environment *)
+         ignore (Env.add_var global_env var declared_type);
+         Env.update_var_value global_env var alloca;
 
          (* Convert the initializer value to float if necessary *)
          let value_to_store =
@@ -305,9 +298,9 @@ and codegen_stmt = function
          let the_function = block_parent (insertion_block builder) in
          let alloca = create_entry_block_alloca the_function var (llvm_type_of_value_type declared_type) in
 
-         (* Add the variable to the symbol table *)
-         let typed_alloca = { value = alloca; typ = declared_type } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+         (* Add the variable to the environment *)
+         ignore (Env.add_var global_env var declared_type);
+         Env.update_var_value global_env var alloca;
 
          (* Store the value in the allocated memory *)
          ignore (build_store init_typed.value alloca builder);
@@ -332,26 +325,26 @@ and codegen_stmt = function
     (* Evaluate the expression to get the value *)
     let value_typed = codegen_expr expr in
     
-    (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values var with
-     | Some existing_var ->
+    (* Look up the name in the environment *)
+    (match Env.lookup global_env var with
+     | Some entry ->
         (* Check if the types match *)
-        if Poly.(=) existing_var.typ value_typed.typ then
+        if Poly.(=) entry.typ value_typed.typ then
           (* Types match, update the value *)
-          (match existing_var.typ with
+          (match entry.typ with
            | Ast.StringType ->
               (* For strings, just update the reference *)
-              Hashtbl.set named_values ~key:var ~data:value_typed;
+              Env.update_var_value global_env var value_typed.value;
               value_typed
            | _ ->
               (* For other types, store in the alloca *)
-              ignore (build_store value_typed.value existing_var.value builder);
+              ignore (build_store value_typed.value (Option.value_exn entry.value) builder);
               value_typed)
         else
           (* Types do not match, raise an error *)
           raise (Failure (Printf.sprintf "Type mismatch: variable '%s' is of type %s but one or more of assigned values are of type %s"
                             var
-                            (match existing_var.typ with
+                            (match entry.typ with
                              | Ast.IntType -> "Int"
                              | Ast.FloatType -> "Float"
                              | Ast.StringType -> "String"
@@ -365,55 +358,66 @@ and codegen_stmt = function
         (* Variable not declared, raise an error *)
         raise (Failure (Printf.sprintf "Variable '%s' not declared" var)))
 
-  (* Updated Let case to include type checking *)
+  (* Updated Let case to use environment *)
   | Let (var, expr, body) ->
     (* Evaluate the initializer *)
     let init_typed = codegen_expr expr in
     
     (* Save the old variable binding if it exists *)
-    let old_binding = Hashtbl.find named_values var in
+    let old_binding = Env.lookup global_env var in
     
     (* Handle based on the expression type *)
     (match expr with
      | String _ ->
         (* For strings, just store the pointer directly *)
-        Hashtbl.set named_values ~key:var ~data:init_typed;
+        ignore (Env.add_var global_env var init_typed.typ);
+        Env.update_var_value global_env var init_typed.value;
      | Float _ ->
         (* For floats, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var float_type in
         ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        ignore (Env.add_var global_env var Ast.FloatType);
+        Env.update_var_value global_env var alloca;
      | Bool _ ->
         (* For booleans, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.BoolType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        ignore (Env.add_var global_env var Ast.BoolType);
+        Env.update_var_value global_env var alloca;
      | Int _ ->
         (* For ints, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
+        ignore (Env.add_var global_env var Ast.IntType);
+        Env.update_var_value global_env var alloca;
      | _ ->
         (* For other types, create an alloca and store *)
         let the_function = block_parent (insertion_block builder) in
         let alloca = create_entry_block_alloca the_function var int_type in
         ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca);
+        ignore (Env.add_var global_env var Ast.IntType);
+        Env.update_var_value global_env var alloca);
     
     (* Generate code for the body *)
     let body_typed = codegen_stmt body in
     
     (* Restore the old binding if it existed *)
     (match old_binding with
-     | Some old_value -> Hashtbl.set named_values ~key:var ~data:old_value
-     | None -> Hashtbl.remove named_values var);
+     | Some old_value -> 
+        Env.update_var_value global_env var (Option.value_exn old_value.value)
+     | None -> 
+        (* Remove the variable from the environment *)
+        let entry = Env.lookup global_env var in
+        match entry with
+        | Some _ -> 
+           (* We can't actually remove the variable from the environment,
+              so we'll just set its value to a dummy value *)
+           let dummy_value = const_int int_type 0 in
+           Env.update_var_value global_env var dummy_value
+        | None -> ());
     
     (* Return the value of the body *)
     body_typed
