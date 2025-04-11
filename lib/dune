@@ -1,7 +1,7 @@
 (library
  (name competitive_programming)
  (libraries llvm llvm.analysis llvm.bitreader llvm.bitwriter base stdio)
- (modules ast parser lexer codegen env semantics types error)
+ (modules ast parser lexer codegen env semantics types)
  (preprocess
   (pps ppx_jane)))
 
