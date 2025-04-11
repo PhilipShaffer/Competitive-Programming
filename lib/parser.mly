@@ -6,13 +6,15 @@
   open Ast  (* Import the AST module to use its types *)
 %}
 
-%token INTTYPE FLOATTYPE STRINGTYPE BOOLTYPE
+(* Tokens for datatypes *)
+%token INT_TYPE FLOAT_TYPE STRING_TYPE BOOL_TYPE
 
 %token <string> ID      (* Identifiers, carrying a string value *)
-%token <string> STRING
-%token <int> INT       (* Integer literals, carrying an int value *)
-%token <float> FLOAT
-%token <bool> BOOL      (* Boolean literals, carrying a bool value *)
+%token <string> STRING  (* String literals, carrying a string value *)
+%token <int>    INT     (* Integer literals, carrying an int value *)
+%token <float>  FLOAT   (* Float literals, carrying an float value *)
+%token <bool>   BOOL    (* Boolean literals, carrying a bool value *)
+%token RETURN ARROW
 
 (* Tokens for comparison operators *)
 %token LT LEQ GT GEQ EQ NEQ
@@ -53,6 +55,8 @@
 (* The main rule - entry point of the parser *)
 main:
   | sl = stmt_list; EOF { Block sl }  (* Parse a statement followed by EOF, return the statement *)
+  | f = func; EOF                      { Block [f] }  /* This assumes functions can be statements */
+  | f = func; SEMICOLON?; sl = stmt_list; EOF { Block (f :: sl) }
   ;
 
 (* Expression rules - define how expressions are parsed *)
@@ -78,29 +82,45 @@ expr:
   | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
   | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
+  | f = ID; LPAREN; args = separated_list(COMMA, expr); RPAREN { Call (f, args) }
   ;
 
 (* Statement rules - define how statements are parsed *)
 stmt:
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
-  | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
+  | x = ID; COLON;    t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }     (* Typed let binding: let x: t = e in s *)
   | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)
   | IF;     e = expr; THEN;   s1 = stmt; ELSE; s2 = stmt  { If (e, s1, s2) }        (* Conditional: if e then s1 else s2 *)
   | IF;     e = expr; THEN;   s = stmt                    { If (e, s, Block []) }   (* Conditional: if e then s *)
   | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)
   | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
   | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
+  | RETURN; e = option(expr)                              { Return e }
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)
 stmt_list:
-  | s = stmt;                           { [s] }     (* Single statement *)
+  | s = stmt;                            { [s] }     (* Single statement *)
   | s = stmt; SEMICOLON?; sl = stmt_list { s :: sl } (* Multiple statements: s1; s2; ...; sn; with optional semicolons *)
   ;
 
 type_expr:
-  | INTTYPE    { IntType }
-  | FLOATTYPE  { FloatType }
-  | STRINGTYPE { StringType }
-  | BOOLTYPE   { BoolType }
+  | INT_TYPE    { IntType }
+  | FLOAT_TYPE  { FloatType }
+  | STRING_TYPE { StringType }
+  | BOOL_TYPE   { BoolType }
   ;
+
+
+/* Add this to your grammar rules section */
+func:
+  | name = ID; LPAREN; params = separated_list(COMMA, param); RPAREN; 
+    return_type = option(preceded(ARROW, type_expr)); LBRACE; body = stmt; RBRACE 
+    { Function (Prototype (name, params, return_type), body) }
+  ;
+
+param:
+  | name = ID; COLON; t = type_expr { (name, t) }
+  ;
+
+  
