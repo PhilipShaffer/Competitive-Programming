@@ -4,7 +4,9 @@ add(n : int, m : int) -> int {
 
 x : int := 5
 y : int := 10
-if x < y then
-  print add(x, y)
-else
+if x < y then {
+  z : int := add(x, y)
+  print z
+} else {
   print y
+}

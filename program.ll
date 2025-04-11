@@ -6,6 +6,7 @@ source_filename = "main"
 
 define i64 @main() {
 entry:
+  %z = alloca i64, align 8
   %y = alloca i64, align 8
   %x = alloca i64, align 8
   store i64 5, ptr %x, align 4
@@ -18,8 +19,9 @@ entry:
   br i1 %ifcond, label %then, label %else
 
 then:                                             ; preds = %entry
-  %x3 = load i64, ptr %x, align 4
-  %printf = call i64 (ptr, ...) @printf(ptr @fmt, i64 %x3)
+  store i64 42, ptr %z, align 4
+  %z3 = load i64, ptr %z, align 4
+  %printf = call i64 (ptr, ...) @printf(ptr @fmt, i64 %z3)
   br label %ifcont
 
 else:                                             ; preds = %entry
@@ -31,5 +33,7 @@ ifcont:                                           ; preds = %else, %then
   %iftmp = phi i64 [ 0, %then ], [ 0, %else ]
   ret i64 0
 }
+
+declare i64 @add(i64, i64)
 
 declare i64 @printf(ptr, ...)
