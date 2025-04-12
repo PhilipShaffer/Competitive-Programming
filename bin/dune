@@ -1,5 +1,5 @@
 (executable
- (public_name Competitive_Programming)
  (name main)
- (libraries common frontend backend stdio)
- (modules main))
+ (public_name compiler)
+ (libraries driver)
+ (preprocess (pps ppx_deriving.show)))

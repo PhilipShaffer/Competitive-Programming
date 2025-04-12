@@ -1,0 +1,5 @@
+(library
+ (name driver)
+ (modules compiler options debug)
+ (libraries common frontend backend llvm unix)
+ (preprocess (pps ppx_deriving.show)))
