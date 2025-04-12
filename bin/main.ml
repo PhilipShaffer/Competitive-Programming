@@ -1,4 +1,6 @@
-open Competitive_programming
+open Common
+open Frontend
+open Backend
 
 (* Debug function to print all tokens *)
 let print_tokens s =

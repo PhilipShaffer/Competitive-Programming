@@ -1,4 +1,4 @@
-open Ast
+open Common.Ast
 
 (* Position information *)
 type position = {

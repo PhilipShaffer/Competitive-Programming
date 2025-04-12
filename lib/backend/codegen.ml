@@ -1,7 +1,7 @@
 open Llvm
 open Base
-open Ast
-open Types
+open Common.Ast
+open Common.Types
 
 (* 
  * FUTURE IMPROVEMENT NOTES:
@@ -15,7 +15,7 @@ open Types
 (* Typed value structure to associate types with values *)
 type typed_value = {
   value: llvalue;  (* The LLVM value *)
-  typ: Ast.value_type; (* The type of the value *)
+  typ: Common.Ast.value_type; (* The type of the value *)
 }
 
 let context = global_context ()
@@ -26,14 +26,14 @@ let float_type = double_type context (* double type chosen from LLVM - > Ocaml d
 let string_type = pointer_type context
 
 (* Create the global environment *)
-let global_env = Env.create_env ()
+let global_env = Common.Env.create_env ()
 
 (* Helper function to get LLVM type from value_type *)
 let llvm_type_of_value_type = function
-  | Ast.IntType -> int_type
-  | Ast.FloatType -> float_type
-  | Ast.StringType -> string_type
-  | Ast.BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
+  | Common.Ast.IntType -> int_type
+  | Common.Ast.FloatType -> float_type
+  | Common.Ast.StringType -> string_type
+  | Common.Ast.BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
 ;;
 
 (* Create an alloca instruction in the entry block of the function. This
@@ -52,10 +52,10 @@ let get_type expr =
   | None -> raise (Failure "Expression missing type information")
 
 (* Helper function to check if an expression is a string *)
-let is_string_expr expr = Poly.(=) (get_type expr) Ast.StringType
+let is_string_expr expr = Poly.(=) (get_type expr) Common.Ast.StringType
 
 (* Helper function to check if an expression is a float *)
-let is_float_expr expr = Poly.(=) (get_type expr) Ast.FloatType
+let is_float_expr expr = Poly.(=) (get_type expr) Common.Ast.FloatType
 
 (* Helper function to extract the LLVM value from a typed_value *)
 let get_llvm_value v = v.value
@@ -155,21 +155,21 @@ let codegen_logical op lhs_val rhs_val expr =
 let rec codegen_expr expr =
   match expr.expr with
   | Var name ->
-      (match Env.lookup global_env name with
+      (match Common.Env.lookup global_env name with
        | Some entry ->
            (* Use type info from the annotated AST *)
            let typ = get_type expr in
            let value = Option.value_exn entry.value in
            { value = (match typ with
-               | Ast.StringType -> value
+               | Common.Ast.StringType -> value
                | _ -> build_load (llvm_type_of_value_type typ) value name builder);
              typ = typ }
        | None -> error_with_pos (Printf.sprintf "Unknown variable: %s" name) expr)
   
-  | Int n -> { value = const_int int_type n; typ = Ast.IntType }
-  | Float f -> { value = const_float float_type f; typ = Ast.FloatType }
-  | Bool b -> { value = const_int int_type (if b then 1 else 0); typ = Ast.BoolType }
-  | String s -> { value = build_global_stringptr s "str" builder; typ = Ast.StringType }
+  | Int n -> { value = const_int int_type n; typ = Common.Ast.IntType }
+  | Float f -> { value = const_float float_type f; typ = Common.Ast.FloatType }
+  | Bool b -> { value = const_int int_type (if b then 1 else 0); typ = Common.Ast.BoolType }
+  | String s -> { value = build_global_stringptr s "str" builder; typ = Common.Ast.StringType }
   
   | Binop (op, lhs, rhs) ->
       let lhs_typed = codegen_expr lhs in
@@ -183,14 +183,14 @@ let rec codegen_expr expr =
       
       let result_value = match op with
         | Add | Sub | Mult | Div | Mod -> 
-            if Poly.(=) result_type Ast.FloatType then
+            if Poly.(=) result_type Common.Ast.FloatType then
               codegen_arithmetic op lhs_val rhs_val expr ~is_float:true
             else
               codegen_arithmetic op lhs_val rhs_val expr ~is_float:false
         | Lt | Leq | Gt | Geq | Eq | Neq ->
-            if Poly.(=) lhs_type Ast.FloatType then
+            if Poly.(=) lhs_type Common.Ast.FloatType then
               codegen_comparison op lhs_val rhs_val expr ~is_float:true
-            else if Poly.(=) lhs_type Ast.StringType then
+            else if Poly.(=) lhs_type Common.Ast.StringType then
               (match op with
                | Eq | Neq ->
                    let strcmp_type = function_type int_type [| string_type; string_type |] in
@@ -213,15 +213,15 @@ let rec codegen_expr expr =
       let result_type = get_type expr in
       
       let result_value = match op, result_type with
-        | Ast.Neg, Ast.FloatType -> 
+        | Common.Ast.Neg, Common.Ast.FloatType -> 
             (try build_fneg expr_val "negtmp" builder
              with e -> error_with_pos (Printf.sprintf "Failed to negate float: %s" 
                (Exn.to_string e)) expr)
-        | Ast.Neg, Ast.IntType -> 
+        | Common.Ast.Neg, Common.Ast.IntType -> 
             (try build_neg expr_val "negtmp" builder
              with e -> error_with_pos (Printf.sprintf "Failed to negate integer: %s" 
                (Exn.to_string e)) expr)
-        | Ast.Not, Ast.BoolType -> 
+        | Common.Ast.Not, Common.Ast.BoolType -> 
             (try
                let cmp = build_icmp Icmp.Eq expr_val (const_int int_type 0) "nottmp" builder in
                build_zext cmp int_type "booltmp" builder
@@ -235,13 +235,13 @@ let rec codegen_expr expr =
 let rec codegen_stmt stmt =
   match stmt with
   | Assign (name, expr) ->
-      let var = match Env.lookup global_env name with
+      let var = match Common.Env.lookup global_env name with
         | Some entry -> Option.value_exn entry.value
         | None -> raise (Failure (Printf.sprintf "Unknown variable: %s" name))
       in
       let value_typed = codegen_expr expr in
       let _ = build_store value_typed.value var builder in
-      { value = const_int int_type 0; typ = Ast.IntType }
+      { value = const_int int_type 0; typ = Common.Ast.IntType }
 
   | Declare (name, _typ, init_expr) ->
       let init_typed = codegen_expr init_expr in
@@ -250,26 +250,26 @@ let rec codegen_stmt stmt =
       let var = create_entry_block_alloca (block_parent (insertion_block builder)) 
                                         name (llvm_type_of_value_type declared_type) in
       let _ = build_store init_typed.value var builder in
-      let _ = Env.add_var global_env name declared_type in
-      let _ = Env.update_var_value global_env name var in
-      { value = const_int int_type 0; typ = Ast.IntType }
+      let _ = Common.Env.add_var global_env name declared_type in
+      let _ = Common.Env.update_var_value global_env name var in
+      { value = const_int int_type 0; typ = Common.Ast.IntType }
 
   | Let (name, init_expr, body) ->
       let init_typed = codegen_expr init_expr in
-      let old_binding = Env.lookup global_env name in
+      let old_binding = Common.Env.lookup global_env name in
       let var = create_entry_block_alloca (block_parent (insertion_block builder)) name (llvm_type_of_value_type init_typed.typ) in
       let _ = build_store init_typed.value var builder in
-      let _ = Env.add_var global_env name init_typed.typ in
-      let _ = Env.update_var_value global_env name var in
+      let _ = Common.Env.add_var global_env name init_typed.typ in
+      let _ = Common.Env.update_var_value global_env name var in
       let body_val = codegen_stmt body in
       (match old_binding with
        | Some old_var -> 
-           let _ = Env.add_var global_env name old_var.typ in
-           let _ = Env.update_var_value global_env name (Option.value_exn old_var.value) in
+           let _ = Common.Env.add_var global_env name old_var.typ in
+           let _ = Common.Env.update_var_value global_env name (Option.value_exn old_var.value) in
            ()
        | None -> 
            (* Just remove the current binding by setting it to None *)
-           let _ = Env.update_var_value global_env name (const_int int_type 0) in
+           let _ = Common.Env.update_var_value global_env name (const_int int_type 0) in
            ());
       body_val
 
@@ -301,7 +301,7 @@ let rec codegen_stmt stmt =
       
       (* Emit merge block *)
       position_at_end merge_bb builder;
-      { value = const_int int_type 0; typ = Ast.IntType }
+      { value = const_int int_type 0; typ = Common.Ast.IntType }
 
   | While (cond, body) ->
       (* Get the current function *)
@@ -330,7 +330,7 @@ let rec codegen_stmt stmt =
       
       (* Emit after loop *)
       position_at_end after_bb builder;
-      { value = const_int int_type 0; typ = Ast.IntType }
+      { value = const_int int_type 0; typ = Common.Ast.IntType }
 
   | Print expr ->
       (* Evaluate the expression to get the value *)
@@ -343,31 +343,31 @@ let rec codegen_stmt stmt =
       
       (* Create the appropriate format string and arguments based on type *)
       let args = match expr_type with
-        | Ast.IntType -> 
+        | Common.Ast.IntType -> 
            [| build_global_stringptr "%ld\n" "fmt" builder; 
               value_typed.value |]
-        | Ast.FloatType -> 
+        | Common.Ast.FloatType -> 
            [| build_global_stringptr "%f\n" "fmt" builder;
               value_typed.value |]
-        | Ast.BoolType ->
+        | Common.Ast.BoolType ->
            [| build_global_stringptr "%s\n" "fmt" builder;
               build_select 
                 (build_icmp Icmp.Ne value_typed.value (const_int int_type 0) "ifcond" builder)
                 (build_global_stringptr "true" "true_str" builder)
                 (build_global_stringptr "false" "false_str" builder)
                 "bool_str" builder |]
-        | Ast.StringType ->
+        | Common.Ast.StringType ->
            [| build_global_stringptr "%s\n" "fmt" builder;
               value_typed.value |]
       in
       
       (* Call printf with the format string and value *)
       let _ = build_call printf_type printf args "printf" builder in
-      { value = const_int int_type 0; typ = Ast.IntType }
+      { value = const_int int_type 0; typ = Common.Ast.IntType }
 
   | Block stmts ->
       (* Execute each statement in sequence *)
-      List.fold stmts ~init:{ value = const_int int_type 0; typ = Ast.IntType }
+      List.fold stmts ~init:{ value = const_int int_type 0; typ = Common.Ast.IntType }
         ~f:(fun _ s -> codegen_stmt s)
 
 (* Main code generation function *)

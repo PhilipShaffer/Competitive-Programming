@@ -3,7 +3,7 @@
 %{
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
-  open Ast  (* Import the AST module to use its types *)
+  open Common.Ast  (* Import the AST module to use its types *)
 
   (* Helper function to create an unannotated expression *)
   let mk_expr e = { expr = e; type_info = None }
@@ -46,7 +46,7 @@
 
 (* Start symbol declaration - specifies the entry point of the grammar *)
 (* The type annotation specifies what type the start symbol produces *)
-%start <Ast.stmt> main
+%start <Common.Ast.stmt> main
 
 (* Grammar rules section - defines the grammar of the language *)
 %%

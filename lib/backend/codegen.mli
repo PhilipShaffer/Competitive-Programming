@@ -1,5 +1,5 @@
 open Llvm
-open Ast
+open Common.Ast
 
 (* Typed value structure *)
 type typed_value = {

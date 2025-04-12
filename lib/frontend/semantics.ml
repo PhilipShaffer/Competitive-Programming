@@ -1,7 +1,7 @@
 open Base
-open Ast
-open Types
-open Env
+open Common.Ast
+open Common.Types
+open Common.Env
 
 (* Enhanced position information *)
 type position = {
