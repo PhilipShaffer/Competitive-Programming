@@ -9,6 +9,7 @@ type compiler_error =
 open Frontend
 open Backend
 open Debug
+open Ast_printer
 
 (* Get compiler tool paths from environment or use defaults *)
 let get_tool_path tool default_path =
@@ -113,8 +114,14 @@ let compile_and_run ?(show_tokens=false) ?(target=Executable) filename output_na
   let program = read_file filename in
   Printf.printf "Program contents:\n%s\n" program;
   
-  if show_tokens then
+  if show_tokens then begin
     print_tokens program;
+    match parse program with
+    | Ok ast -> 
+        Printf.printf "\nParsed AST:\n";
+        print_stmt ast
+    | Error _ -> ()
+  end;
   
   match parse program with
   | Error e -> Error e
