@@ -25,6 +25,7 @@
   ocaml
   base
   core
+  alcotest
   core_unix
   ppx_jane
   ppx_deriving)

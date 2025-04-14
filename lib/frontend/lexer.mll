@@ -5,6 +5,7 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Parser  (* Import the Parser module to use its tokens *)
+  open Common.Error (* Import the Error module for error handling *)
 }
 
 (* Definitions of regular expressions for different types of tokens *)
@@ -36,6 +37,7 @@ rule read =
   | "float" { FLOATTYPE }  (* Float type *)
   | "string" { STRINGTYPE }  (* String type *)
   | "bool"  { BOOLTYPE }  (* Boolean type *)
+  | "return" { RETURN } (* Return keyword *)
   | id      { ID (Lexing.lexeme lexbuf) }  (* Identifiers *)
   | int     { INT (int_of_string (Lexing.lexeme lexbuf)) }  (* Integer literals *)
   | '"'     { read_string (Buffer.create 16) lexbuf }  (* Start of a string *)  
@@ -58,7 +60,10 @@ rule read =
   | "}"     { RBRACE }  (* Right brace *)
   | ";"     { SEMICOLON }  (* Semicolon *)
   | ":"     { COLON }  (* Colon *)
+  | ","     { COMMA }  (* Comma *)
+  | "->"    { ARROW }  (* Arrow *)
   | eof     { EOF }  (* End-of-file *)
+  | _ as c  { raise_error ~message:("Unexpected character: " ^ Char.escaped c) ~loc:(loc_of_lexbuf lexbuf) () } (* Catch-all for unexpected characters *)
 
 and read_string buf =
   parse
@@ -71,5 +76,5 @@ and read_string buf =
       Buffer.add_string buf (Lexing.lexeme lexbuf);
       read_string buf lexbuf 
     }
-  | eof { raise (Failure "Unterminated string") }
-  | _ { raise (Failure ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
+  | eof { raise_error ~message:"Unterminated string" ~loc:(loc_of_lexbuf lexbuf) () }
+  | _   { raise_error ~message:("Illegal string character: " ^ Lexing.lexeme lexbuf) ~loc:(loc_of_lexbuf lexbuf) () }

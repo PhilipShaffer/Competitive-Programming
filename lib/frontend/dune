@@ -1,7 +1,8 @@
 (library
  (name frontend)
+ (public_name Competitive_Programming.frontend)
  (libraries common base)
- (modules parser lexer)
+ (modules parser lexer parser_utils)
  (preprocess
   (pps ppx_jane)))
 

@@ -54,6 +54,7 @@ type raw_expr =
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
+ | FunCall of string * expr list (* Function call: f(arg1, arg2, ...) *)
 [@@deriving show, eq]
 
 (* Typed expressions - expressions with type information *)
@@ -71,4 +72,6 @@ type stmt =
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
+ | Return of expr            (* Return statement: return expr *)
+ | FunDef of { fname: string; params: (string * value_type) list; return_type: value_type; body: stmt; loc: location } (* Function definition *)
 [@@deriving show, eq]

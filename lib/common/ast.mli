@@ -6,7 +6,7 @@ type location = {
   start_col: int;
   end_line: int;
   end_col: int;
-}
+} [@@deriving show, eq]
 
 (* Value type enum to represent types *)
 type value_type =
@@ -14,17 +14,19 @@ type value_type =
   | FloatType
   | StringType
   | BoolType
+[@@deriving show, eq]
 
 (* Type information for expressions *)
 type type_info = {
   expr_type: value_type;
   pos: location option;  (* Source location information *)
-}
+} [@@deriving show, eq]
 
 (* Unary operators - operations that take a single operand *)
 type uop =
   | Neg   (* Arithmetic negation: -e *)
   | Not   (* Logical negation: not e *)
+[@@deriving show, eq]
 
 (* Binary operators - operations that take two operands *)
 type bop =
@@ -41,6 +43,7 @@ type bop =
   | And   (* Logical AND: e1 and e2 *)
   | Or    (* Logical OR: e1 or e2 *)
   | Mod   (* Modulo: e1 % e2 *)
+[@@deriving show, eq]
 
 (* Raw expressions without type information *)
 type raw_expr =
@@ -51,6 +54,7 @@ type raw_expr =
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
+ | FunCall of string * expr list (* Function call: f(arg1, arg2, ...) *) [@@deriving show, eq]
 
 (* Typed expressions - expressions with type information *)
 and expr = {
@@ -58,6 +62,7 @@ and expr = {
   type_info: type_info option;  (* None for unannotated expressions *)
   loc: location;                (* Source location *)
 }
+[@@deriving show, eq]
 
 (* Statements - represent actions or commands *)
 type stmt =
@@ -67,23 +72,5 @@ type stmt =
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
-
-(* Show functions *)
-val show_location : location -> string
-val show_value_type : value_type -> string
-val show_type_info : type_info -> string
-val show_uop : uop -> string
-val show_bop : bop -> string
-val show_raw_expr : raw_expr -> string
-val show_expr : expr -> string
-val show_stmt : stmt -> string
-
-(* Equality functions *)
-val equal_location : location -> location -> bool
-val equal_value_type : value_type -> value_type -> bool
-val equal_type_info : type_info -> type_info -> bool
-val equal_uop : uop -> uop -> bool
-val equal_bop : bop -> bop -> bool
-val equal_raw_expr : raw_expr -> raw_expr -> bool
-val equal_expr : expr -> expr -> bool
-val equal_stmt : stmt -> stmt -> bool 
+ | Return of expr            (* Return statement: return expr *)
+ | FunDef of { fname: string; params: (string * value_type) list; return_type: value_type; body: stmt; loc: location } (* Function definition *) [@@deriving show, eq]

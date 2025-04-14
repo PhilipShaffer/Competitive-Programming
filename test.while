@@ -1,9 +1,12 @@
 x : int := 5
 y : int := 10
 z : int := x + y
+add: (x: int, y: int) -> int {
+  return x + y
+}
+
 if x < y then {
-  print x
-  print y
+  print add(x, y)
 } else {
   print y
 }

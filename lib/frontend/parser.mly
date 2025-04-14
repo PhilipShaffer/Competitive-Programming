@@ -4,8 +4,9 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Common.Ast  (* Import the AST module to use its types *)
+  open Common.Error (* Import the Error module for error handling *)
 
-  (* Helper function to create a location *)
+  (* Helper function to create a location from Menhir/Lexer positions *)
   let mk_loc start_pos end_pos = {
     start_line = start_pos.Lexing.pos_lnum;
     start_col = start_pos.Lexing.pos_cnum - start_pos.Lexing.pos_bol;
@@ -33,7 +34,7 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO ASSIGN
+%token IF THEN ELSE PRINT WHILE DO ASSIGN RETURN
 
 (* Tokens for logical operators *)
 %token AND OR NOT
@@ -42,7 +43,7 @@
 %token PLUS MINUS MULT DIV MOD
 
 (* Tokens for delimiters *)
-%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON
+%token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON COMMA ARROW
 %token EOF
 
 (* Precedence and associativity declarations - lower lines have higher precedence *)
@@ -91,17 +92,24 @@ expr:
   | NOT; e = expr                { mk_expr (Unop (Not, e)) $startpos $endpos }
   | MINUS; e = expr %prec UMINUS { mk_expr (Unop (Neg, e)) $startpos $endpos }
   | LPAREN; e = expr; RPAREN     { e }
+  | f = ID; LPAREN; args = separated_list(COMMA, expr); RPAREN { mk_expr (FunCall (f, args)) $startpos $endpos } (* Function call *)
+  | error { raise_error ~message:"Syntax error: Invalid expression" ~loc:(mk_loc $startpos $endpos) () } (* Generic expression error *)
   ;
 
 (* Statement rules - define how statements are parsed *)
 stmt:
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
   | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
+  | IF;     _e = expr; error                                    { raise_error ~message:"Syntax error: Expected 'then' after if condition" ~loc:(mk_loc $startpos $endpos) () }
   | IF;     e = expr; THEN;   s1 = block_stmt; ELSE; s2 = block_stmt  { If (e, s1, s2) }        (* Conditional: if e then { s1 } else { s2 } *)
   | IF;     e = expr; THEN;   s = block_stmt                    { If (e, s, Block []) }   (* Conditional: if e then { s } *)
+  | WHILE;  _e = expr; error                                    { raise_error ~message:"Syntax error: Expected 'do' after while condition" ~loc:(mk_loc $startpos $endpos) () }
   | WHILE;  e = expr; DO;     s = block_stmt                    { While (e, s) }          (* Loop: while e do { s } *)
   | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
   | block = block_stmt                                    { block }                 (* Block statement *)
+  | RETURN; e = expr                                      { Return e }              (* Return statement: return e *)
+  | fname = ID; COLON; LPAREN; params = separated_list(COMMA, param); RPAREN; ARROW; ret_type = type_expr; body = block_stmt { FunDef { fname=fname; params=params; return_type=ret_type; body=body; loc=mk_loc $startpos $endpos } } (* Function definition *)
+  | error { raise_error ~message:"Syntax error: Invalid statement" ~loc:(mk_loc $startpos $endpos) () } (* Generic statement error *)
   ;
 
 block_stmt:
@@ -110,8 +118,8 @@ block_stmt:
 
 (* Statement list rules - define how sequences of statements are parsed *)
 stmt_list:
-  | s = stmt;                           { [s] }     (* Single statement *)
-  | s = stmt; SEMICOLON?; sl = stmt_list { s :: sl } (* Multiple statements: s1; s2; ...; sn; *)
+  | /* empty */ { [] }
+  | s = stmt; SEMICOLON?; sl = stmt_list { s :: sl }
   ;
 
 type_expr:
@@ -119,4 +127,8 @@ type_expr:
   | FLOATTYPE  { FloatType }
   | STRINGTYPE { StringType }
   | BOOLTYPE   { BoolType }
+  ;
+
+param:
+  | name = ID; COLON; t = type_expr { (name, t) }
   ;
