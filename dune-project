@@ -21,14 +21,13 @@
  (name Competitive_Programming)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends 
+ (depends
   ocaml
   base
   core
   core_unix
   ppx_jane
-  ppx_deriving
-  ppx_deriving_show)
+  ppx_deriving)
  (tags
   ("add topics" "to describe" your project)))
 

@@ -82,11 +82,6 @@ let rec type_check_stmt env stmt =
       if equal_value_type t t' then ((x, t) :: env, Declare (x, t, e'))
       else raise (Failure (Printf.sprintf "Type mismatch in declaration of %s at line %d, column %d" 
                          x e.loc.start_line e.loc.start_col))
-  | Let (x, e, s) ->
-      let e' = infer_type env e in
-      let t = (Option.get e'.type_info).expr_type in
-      let (env', s') = type_check_stmt ((x, t) :: env) s in
-      (List.tl env', Let (x, e', s'))
   | If (e, s1, s2) ->
       let e' = infer_type env e in
       let t = (Option.get e'.type_info).expr_type in

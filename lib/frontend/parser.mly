@@ -33,7 +33,7 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO LET IN ASSIGN
+%token IF THEN ELSE PRINT WHILE DO ASSIGN
 
 (* Tokens for logical operators *)
 %token AND OR NOT
@@ -97,7 +97,6 @@ expr:
 stmt:
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
   | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
-  | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)
   | IF;     e = expr; THEN;   s1 = block_stmt; ELSE; s2 = block_stmt  { If (e, s1, s2) }        (* Conditional: if e then { s1 } else { s2 } *)
   | IF;     e = expr; THEN;   s = block_stmt                    { If (e, s, Block []) }   (* Conditional: if e then { s } *)
   | WHILE;  e = expr; DO;     s = block_stmt                    { While (e, s) }          (* Loop: while e do { s } *)

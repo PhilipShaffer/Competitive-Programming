@@ -14,9 +14,9 @@ depends: [
   "ocaml"
   "base"
   "core"
+  "core_unix"
   "ppx_jane"
   "ppx_deriving"
-  "ppx_deriving_show"
   "odoc" {with-doc}
 ]
 build: [
