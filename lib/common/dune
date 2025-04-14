@@ -1,6 +1,6 @@
 (library
  (name common)
- (libraries base llvm)
- (modules types ast env)
+ (libraries base)
+ (modules ast type_checker)
  (preprocess
-  (pps ppx_jane))) 
+  (pps ppx_deriving.show ppx_deriving.eq))) 

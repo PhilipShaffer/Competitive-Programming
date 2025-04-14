@@ -1,7 +1,9 @@
 x : int := 5
-y : int := 10
+y : float := 10.0
 z : int := x + y
-if x < y then
+if x < y then {
   print x
-else
   print y
+} else {
+  print y
+}

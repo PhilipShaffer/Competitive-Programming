@@ -1,5 +1,5 @@
 (executable
  (name main)
  (public_name compiler)
- (libraries driver)
- (preprocess (pps ppx_deriving.show)))
+ (libraries frontend common base core core_unix)
+ (preprocess (pps ppx_jane ppx_deriving.show)))

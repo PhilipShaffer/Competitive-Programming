@@ -1,7 +1,7 @@
 (library
  (name frontend)
- (libraries common)
- (modules parser lexer semantics)
+ (libraries common base)
+ (modules parser lexer)
  (preprocess
   (pps ppx_jane)))
 

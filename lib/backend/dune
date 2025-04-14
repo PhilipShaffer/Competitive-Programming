@@ -1,6 +1,6 @@
 (library
  (name backend)
- (libraries common frontend llvm llvm.analysis llvm.bitreader llvm.bitwriter)
- (modules codegen)
+ (libraries )
+ (modules )
  (preprocess
   (pps ppx_jane))) 

@@ -1,5 +1,0 @@
-(library
- (name driver)
- (modules compiler options debug ast_printer)
- (libraries common frontend backend llvm unix)
- (preprocess (pps ppx_deriving.show)))
