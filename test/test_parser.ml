@@ -1,7 +1,8 @@
 open Alcotest
 open Frontend (* Access Lexer, Parser, Parser_utils *)
-open Common (* Need Ast for parser tests *)
+open Common (* Need Ast and Error for parser tests *)
 open Ast (* Open Ast module directly *)
+open Error (* Open Error module for SyntaxError exception *)
 
 (* Helper function to parse a string into an AST statement *)
 let parse_string s =
@@ -77,15 +78,69 @@ let test_parser_if_else () =
   ]
   in
   check stmt_testable "If/then/else" expected (parse_string input)
+(* --- Parser Error Tests --- *)
+
+(* No helper needed now, using try...with in each test *)
+
+let test_parser_invalid_expression () =
+  let input = "x := 1 + ;" in
+  let expected_msg = "Syntax error: Invalid expression" in
+  try
+    ignore (parse_string input);
+    Alcotest.fail "Expected CompilerError for invalid expression, but none raised."
+  with
+  | CompilerError { message; _ } -> (* Ignore loc and context *)
+      Alcotest.(check string) "Invalid expression message" expected_msg message
+  | exn -> Alcotest.failf "Unexpected exception for invalid expression: %s" (Printexc.to_string exn)
+
+let test_parser_missing_then () =
+  let input = "if x > 0" in
+  let expected_msg = "Syntax error: Expected 'then' after if condition" in
+  try
+    ignore (parse_string input);
+    Alcotest.fail "Expected CompilerError for missing 'then', but none raised."
+  with
+  | CompilerError { message; _ } -> (* Ignore loc and context *)
+      Alcotest.(check string) "Missing 'then' message" expected_msg message
+  | exn -> Alcotest.failf "Unexpected exception for missing 'then': %s" (Printexc.to_string exn)
+
+let test_parser_missing_do () =
+  let input = "while x > 0" in
+  let expected_msg = "Syntax error: Expected 'do' after while condition" in
+  try
+    ignore (parse_string input);
+    Alcotest.fail "Expected CompilerError for missing 'do', but none raised."
+  with
+  | CompilerError { message; _ } -> (* Ignore loc and context *)
+      Alcotest.(check string) "Missing 'do' message" expected_msg message
+  | exn -> Alcotest.failf "Unexpected exception for missing 'do': %s" (Printexc.to_string exn)
+
+let test_parser_invalid_statement () =
+  let input = ":= 5;" in
+  let expected_msg = "Syntax error: Invalid statement" in
+  try
+    ignore (parse_string input);
+    Alcotest.fail "Expected CompilerError for invalid statement, but none raised."
+  with
+  | CompilerError { message; _ } -> (* Ignore loc and context *)
+      Alcotest.(check string) "Invalid statement message" expected_msg message
+  | exn -> Alcotest.failf "Unexpected exception for invalid statement: %s" (Printexc.to_string exn)
+
 
 (* --- Test Suite --- *)
 
 let parser_suite =
   [
-    ("Parser", [
+    ("Parser Success", [
       test_case "Simple assignment" `Quick test_parser_simple_assign;
       test_case "If/then/else" `Quick test_parser_if_else;
-      (* Add more parser tests here *)
+      (* Add more successful parser tests here *)
+    ]);
+    ("Parser Errors", [
+      test_case "Invalid expression" `Quick test_parser_invalid_expression;
+      test_case "Missing 'then'" `Quick test_parser_missing_then;
+      test_case "Missing 'do'" `Quick test_parser_missing_do;
+      test_case "Invalid statement" `Quick test_parser_invalid_statement;
     ]);
   ]
 
