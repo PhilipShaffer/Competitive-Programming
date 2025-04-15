@@ -8,82 +8,6 @@ module SMap = Map.Make(String)
 module SSet = Set.Make(String)
 module LabelMap = Map.Make(String) (* Map where keys are block labels *)
 
-(* --- Data Structures for Liveness Analysis --- *)
-
-(* Represents a node in the Control Flow Graph *)
-type cfg_node = {
-  _label: label; (* Prefixed as it's mainly used as a map key *)
-  instrs: instruction list;
-  predecessors: label list; (* Made immutable *)
-  successors: label list;   (* Made immutable *)
-  mutable use_set: SSet.t; (* Variables used before definition in this block *)
-  mutable def_set: SSet.t; (* Variables defined in this block *)
-}
-
-(* Control Flow Graph: Map from label to cfg_node *)
-type cfg = cfg_node LabelMap.t
-
-(* Maps from block labels to sets of live variables *)
-type live_map = SSet.t LabelMap.t
-
-(* Map from block label to its (use, def) sets *)
-(* Removed unused type alias block_use_def_map *)
-
-(* --- Control Flow Graph Construction --- *)
-
-(* Builds the Control Flow Graph for a function *)
-let build_cfg (blocks: basic_block list) : cfg =
-  (* 1. Create initial nodes map (without links yet) *)
-  let initial_nodes =
-    List.fold_left (fun map block ->
-      let node = {
-        _label = block.label;
-        instrs = block.instrs;
-        predecessors = []; (* Initialize empty *)
-        successors = [];   (* Initialize empty *)
-        use_set = SSet.empty; (* Will be computed later *)
-        def_set = SSet.empty; (* Will be computed later *)
-      } in
-      LabelMap.add block.label node map
-    ) LabelMap.empty blocks
-  in
-
-  (* 2. Calculate successor lists for all nodes *)
-  let successor_map =
-    List.fold_left (fun map block ->
-      let next_block_opt =
-        let current_index_opt = List.find_index (fun b -> b.label = block.label) blocks in
-        match current_index_opt with
-        | Some i -> List.nth_opt blocks (i + 1)
-        | None -> None
-      in
-      let successors =
-        match List.rev block.instrs with
-        | (Jump lbl) :: _ -> [lbl]
-        | (CondJump (_, then_lbl, else_lbl)) :: _ -> [then_lbl; else_lbl]
-        | (Return _) :: _ -> []
-        | _ -> (match next_block_opt with Some nb -> [nb.label] | None -> [])
-      in
-      LabelMap.add block.label successors map
-    ) LabelMap.empty blocks
-  in
-
-  (* 3. Calculate predecessor lists based on successor map *)
-  let predecessor_map = ref LabelMap.empty in
-  LabelMap.iter (fun label successors ->
-    List.iter (fun succ_label ->
-      let current_preds = LabelMap.find_opt succ_label !predecessor_map |> Option.value ~default:[] in
-      predecessor_map := LabelMap.add succ_label (label :: current_preds) !predecessor_map
-    ) successors
-  ) successor_map;
-
-  (* 4. Create final CFG map with links *)
-  LabelMap.mapi (fun label node ->
-    let successors = LabelMap.find_opt label successor_map |> Option.value ~default:[] in
-    let predecessors = LabelMap.find_opt label !predecessor_map |> Option.value ~default:[] in
-    { node with successors = successors; predecessors = predecessors }
-  ) initial_nodes
-
 (* --- Helper Functions for Variable Use/Def Analysis --- *)
 
 (* Get the set of variables used by an operand *)
@@ -215,7 +139,7 @@ let dead_branch_elimination_pass (instrs: instruction list) : instruction list =
     | [] -> List.rev acc_instrs
     | (CondJump (Const c, then_lbl, else_lbl)) :: rest ->
         (* If condition is constant, replace with unconditional jump *)
-        let new_instr = 
+        let new_instr =
           if c != 0 then (* True condition *)
             Jump then_lbl
           else (* False condition *)
@@ -227,9 +151,235 @@ let dead_branch_elimination_pass (instrs: instruction list) : instruction list =
   in
   eliminate [] instrs
 
-(* --- Unreachable Code Elimination --- *)
+(* --- Function Inlining --- *)
 
-(* Find all reachable blocks from a given starting label *)
+(* Unique suffix generation *)
+let inline_counter = ref 0
+let generate_unique_suffix () =
+  inline_counter := !inline_counter + 1;
+  "_inline" ^ string_of_int !inline_counter
+
+(* Renaming logic *)
+let rename_operand (suffix: string) (params: SSet.t) (operand: operand) : operand =
+  match operand with
+  | Var v ->
+      (* Rename parameters and local temporaries (_t) *)
+      if SSet.mem v params || String.starts_with ~prefix:"_t" v then
+        Var (v ^ suffix)
+      else
+        operand (* Global variables or caller variables are not renamed *)
+  | Const _ -> operand
+
+let rename_instruction (suffix: string) (params: SSet.t) (instr: instruction) : instruction =
+  let rename_op = rename_operand suffix params in
+  let rename_var v = if SSet.mem v params || String.starts_with ~prefix:"_t" v then v ^ suffix else v in
+  match instr with
+  | Assign (dest, src) -> Assign (rename_var dest, rename_op src)
+  | BinOp (dest, op1, bop, op2) -> BinOp (rename_var dest, rename_op op1, bop, rename_op op2)
+  | Label l -> Label (l ^ suffix) (* Rename labels as well *)
+  | Jump l -> Jump (l ^ suffix)
+  | CondJump (cond, then_lbl, else_lbl) -> CondJump (rename_op cond, then_lbl ^ suffix, else_lbl ^ suffix)
+  | Call (dest_opt, fname, args) ->
+      let renamed_dest_opt = Option.map rename_var dest_opt in
+      (* Don't rename the function name (fname) *)
+      Call (renamed_dest_opt, fname, List.map rename_op args)
+  | Return op_opt -> Return (Option.map rename_op op_opt)
+
+(* Substitution logic *)
+let substitute_params (param_arg_map: operand SMap.t) (instr: instruction) : instruction =
+  (* Substitute operands within the instruction *)
+  let subst_op (op: operand) : operand = (* Added type annotation *)
+    match op with
+    | Var v -> SMap.find_opt v param_arg_map |> Option.value ~default:op
+    | Const _ -> op
+  in
+  match instr with
+  | Assign (dest, src) -> Assign (dest, subst_op src) (* Don't substitute dest *)
+  | BinOp (dest, op1, bop, op2) -> BinOp (dest, subst_op op1, bop, subst_op op2) (* Don't substitute dest *)
+  | CondJump (cond, then_lbl, else_lbl) -> CondJump (subst_op cond, then_lbl, else_lbl)
+  | Call (dest_opt, fname, args) -> Call (dest_opt, fname, List.map subst_op args) (* Don't substitute dest_opt *)
+  | Return op_opt -> Return (Option.map subst_op op_opt)
+  | Label _ | Jump _ -> instr (* No operands to substitute *)
+
+(* Simple inlining heuristics *)
+let should_inline (caller_name: string) (callee: tac_function) : bool =
+  (* Add explicit type annotation for 'block' in fold_left *)
+  let instruction_count = List.fold_left (fun acc (block : basic_block) -> acc + List.length block.instrs) 0 callee.blocks in
+  let is_recursive = caller_name = callee.name in
+  let max_instructions = 15 (* Configurable heuristic *) in
+  (not is_recursive) && (instruction_count <= max_instructions)
+
+(* Main function inlining pass *)
+let inline_functions (prog: tac_program) : tac_program =
+  let func_map = List.fold_left (fun map f -> SMap.add f.name f map) SMap.empty prog.functions in
+
+  let inline_in_function (func: tac_function) : tac_function =
+    let new_label_gen () : label = generate_unique_suffix () in (* Returns string label *)
+
+    (* Removed 'rec' keyword as it's not recursive *)
+    let inline_in_block (block: basic_block) : basic_block list =
+      (* Process instructions, accumulating instructions before a potential call *)
+      let rec process_instrs (instrs_before_call: instruction list) (remaining_instrs: instruction list) : basic_block list = (* Explicit return type *)
+        match remaining_instrs with
+        | [] -> (* No call found in this block or reached end *)
+            (* Return the original block (or modified if prior inlining happened) *)
+            let result : basic_block list = [{ block with instrs = List.rev instrs_before_call }] in (* Explicit type *)
+            result
+        | (Call (dest_opt, fname, args)) :: instrs_after_call ->
+            (match SMap.find_opt fname func_map with
+             | Some callee when should_inline func.name callee ->
+                 Printf.printf "INFO: Inlining call to '%s' in function '%s' (block %s)\n" fname func.name block.label;
+                 (* --- Inlining Steps --- *)
+                 let suffix = generate_unique_suffix () in
+                 let callee_params_set = SSet.of_list callee.params in
+
+                 (* 1. Rename callee body (labels, params, temps) *)
+                 (* Corrected: Construct record directly *)
+                 let renamed_callee_blocks : basic_block list = List.map (fun blk ->
+                   { label = blk.label ^ suffix;
+                     instrs = List.map (rename_instruction suffix callee_params_set) blk.instrs
+                   }) callee.blocks in
+
+                 (* 2. Create Param -> Arg Map (using RENAMED param names) *)
+                 let param_arg_map =
+                   try List.fold_left2 (fun map param arg -> SMap.add (param ^ suffix) arg map) SMap.empty callee.params args
+                   with Invalid_argument _ -> failwith ("Arity mismatch in call to " ^ fname ^ " in " ^ func.name)
+                 in
+
+                 (* 3. Substitute Params in Renamed Body *)
+                 (* Corrected: Construct record directly *)
+                 let substituted_blocks : basic_block list = List.map (fun blk ->
+                     { label = blk.label; (* Keep renamed label *)
+                       instrs = List.map (substitute_params param_arg_map) blk.instrs }
+                   ) (renamed_callee_blocks : basic_block list) in
+
+                 (* 4. Handle Returns & Create Continuation *)
+                 let continuation_label = new_label_gen () in
+                 (* Corrected: Construct record directly *)
+                 let inlined_blocks_processed : basic_block list = List.map (fun blk ->
+                     let map_func = (fun (instr: instruction) : instruction list ->
+                       match instr with
+                       | Return (Some ret_op) ->
+                           (match dest_opt with
+                            | Some dest -> [Assign (dest, ret_op); Jump continuation_label]
+                            | None      -> [Jump continuation_label]
+                           )
+                       | Return None -> [Jump continuation_label]
+                       | other_instr -> [other_instr]
+                     ) in
+                     let new_instrs : instruction list = List.concat_map map_func blk.instrs in
+                     { label = blk.label; instrs = new_instrs } (* Construct directly *)
+                   ) (substituted_blocks : basic_block list) in
+
+                 (* 5. Stitch blocks together *)
+                 let entry_label_of_inlined = match renamed_callee_blocks with
+                   | [] -> continuation_label
+                   | first_inlined_block :: _ -> first_inlined_block.label
+                 in
+
+                 let call_site_block : basic_block = {
+                   label = block.label;
+                   instrs = List.rev instrs_before_call @ [Jump entry_label_of_inlined]
+                 } in
+
+                 let continuation_block_opt : basic_block option =
+                   if instrs_after_call <> [] then
+                     Some { label = continuation_label; instrs = instrs_after_call }
+                   else
+                     None
+                 in
+
+                 let result_blocks : basic_block list =
+                   call_site_block :: inlined_blocks_processed @ (Option.to_list continuation_block_opt)
+                 in
+                 result_blocks
+
+             | _ ->
+                 process_instrs (Call(dest_opt, fname, args) :: instrs_before_call) instrs_after_call
+            )
+        | instr :: rest ->
+            process_instrs (instr :: instrs_before_call) rest
+      in
+      process_instrs [] block.instrs
+    in
+    { func with blocks = List.concat_map inline_in_block func.blocks }
+  in
+  { functions = List.map inline_in_function prog.functions }
+
+
+(* --- Data Structures for Liveness Analysis --- *)
+(* Moved CFG types here *)
+type cfg_node = {
+  _label: label; (* Prefixed as it's mainly used as a map key *)
+  instrs: instruction list;
+  predecessors: label list; (* Made immutable *)
+  successors: label list;   (* Made immutable *)
+  mutable use_set: SSet.t; (* Variables used before definition in this block *)
+  mutable def_set: SSet.t; (* Variables defined in this block *)
+}
+
+(* Control Flow Graph: Map from label to cfg_node *)
+type cfg = cfg_node LabelMap.t
+
+(* Maps from block labels to sets of live variables *)
+type live_map = SSet.t LabelMap.t
+
+(* --- Control Flow Graph Construction --- *)
+(* Moved build_cfg here *)
+let build_cfg (blocks: basic_block list) : cfg =
+  (* 1. Create initial nodes map (without links yet) *)
+  let initial_nodes =
+    List.fold_left (fun map block ->
+      let node = {
+        _label = block.label;
+        instrs = block.instrs;
+        predecessors = []; (* Initialize empty *)
+        successors = [];   (* Initialize empty *)
+        use_set = SSet.empty; (* Will be computed later *)
+        def_set = SSet.empty; (* Will be computed later *)
+      } in
+      LabelMap.add block.label node map
+    ) LabelMap.empty blocks
+  in
+
+  (* 2. Calculate successor lists for all nodes *)
+  let successor_map =
+    List.fold_left (fun map block ->
+      let next_block_opt =
+        let current_index_opt = List.find_index (fun b -> b.label = block.label) blocks in
+        match current_index_opt with
+        | Some i -> List.nth_opt blocks (i + 1)
+        | None -> None
+      in
+      let successors =
+        match List.rev block.instrs with
+        | (Jump lbl) :: _ -> [lbl]
+        | (CondJump (_, then_lbl, else_lbl)) :: _ -> [then_lbl; else_lbl]
+        | (Return _) :: _ -> []
+        | _ -> (match next_block_opt with Some nb -> [nb.label] | None -> [])
+      in
+      LabelMap.add block.label successors map
+    ) LabelMap.empty blocks
+  in
+
+  (* 3. Calculate predecessor lists based on successor map *)
+  let predecessor_map = ref LabelMap.empty in
+  LabelMap.iter (fun label successors ->
+    List.iter (fun succ_label ->
+      let current_preds = LabelMap.find_opt succ_label !predecessor_map |> Option.value ~default:[] in
+      predecessor_map := LabelMap.add succ_label (label :: current_preds) !predecessor_map
+    ) successors
+  ) successor_map;
+
+  (* 4. Create final CFG map with links *)
+  LabelMap.mapi (fun label node ->
+    let successors = LabelMap.find_opt label successor_map |> Option.value ~default:[] in
+    let predecessors = LabelMap.find_opt label !predecessor_map |> Option.value ~default:[] in
+    { node with successors = successors; predecessors = predecessors }
+  ) initial_nodes
+
+(* --- Unreachable Code Elimination --- *)
+(* Moved find_reachable_blocks and unreachable_code_elimination_pass here *)
 let find_reachable_blocks (cfg: cfg) (start_label: label) : SSet.t =
   let visited = ref SSet.empty in
   let rec visit label =
@@ -243,28 +393,26 @@ let find_reachable_blocks (cfg: cfg) (start_label: label) : SSet.t =
   visit start_label;
   !visited
 
-(* Remove unreachable blocks from a function *)
 let unreachable_code_elimination_pass (func: tac_function) : tac_function =
   (* Build CFG for the function *)
   let cfg = build_cfg func.blocks in
-  
+
   (* Find all reachable blocks from the entry point (first block) *)
   let entry_label = match func.blocks with
     | [] -> "" (* Should not happen for valid functions *)
     | first_block :: _ -> first_block.label
   in
   let reachable_labels = find_reachable_blocks cfg entry_label in
-  
+
   (* Filter blocks to keep only reachable ones *)
-  let reachable_blocks = List.filter (fun block -> 
+  let reachable_blocks = List.filter (fun block ->
     SSet.mem block.label reachable_labels
   ) func.blocks in
-  
+
   { func with blocks = reachable_blocks }
 
-(* --- Liveness Analysis & CFG Construction (Placeholders) --- *)
-
-(* Computes Use/Def sets for a single block *)
+(* --- Liveness Analysis --- *)
+(* Moved compute_block_use_def and analyze_liveness here *)
 let compute_block_use_def (instrs: instruction list) : (SSet.t * SSet.t) =
   let defined_in_block = ref SSet.empty in
   let used_in_block = ref SSet.empty in
@@ -286,7 +434,6 @@ let compute_block_use_def (instrs: instruction list) : (SSet.t * SSet.t) =
 
   (!used_in_block, !defined_in_block)
 
-(* Performs iterative liveness analysis using a worklist algorithm *)
 let analyze_liveness (cfg: cfg) : (live_map * live_map) =
   let live_in_map = ref (LabelMap.map (fun _ -> SSet.empty) cfg) in
   let live_out_map = ref (LabelMap.map (fun _ -> SSet.empty) cfg) in
@@ -333,10 +480,8 @@ let analyze_liveness (cfg: cfg) : (live_map * live_map) =
 
   (!live_in_map, !live_out_map)
 
-
 (* --- Dead Code Elimination (Using Liveness Information) --- *)
-
-(* Apply dead code elimination within a list of instructions (intra-block) *)
+(* Moved dead_code_elimination_pass here *)
 let dead_code_elimination_pass (instrs: instruction list) (live_out: SSet.t) : instruction list =
   let rec eliminate (remaining_instrs: instruction list) (live_vars: SSet.t) (acc_instrs: instruction list) : instruction list =
     match remaining_instrs with
@@ -364,8 +509,6 @@ let dead_code_elimination_pass (instrs: instruction list) (live_out: SSet.t) : i
         let new_acc_instrs = if is_dead then acc_instrs else instr :: acc_instrs in
         eliminate rest next_live_vars new_acc_instrs
   in
-  (* Start the backward pass. Initially, no variables are known to be live *out* of the block.
-     This is a simplification; a full analysis would need live-out information. *)
   (* Start the backward pass with the known live_out set for this block *)
   eliminate (List.rev instrs) live_out []
 
@@ -373,6 +516,8 @@ let dead_code_elimination_pass (instrs: instruction list) (live_out: SSet.t) : i
 (* --- Function and Program Optimization --- *)
 (* Optimize each function in the program *)
 let optimize_tac (prog: tac_program) : tac_program =
+  let inlined_prog = inline_functions prog in (* Apply inlining first *)
+
   let optimize_function func =
     (* 1. Build CFG *)
     let cfg = build_cfg func.blocks in
@@ -411,9 +556,9 @@ let optimize_tac (prog: tac_program) : tac_program =
 
     (* Apply optimization to all blocks *)
     let optimized_func = { func with blocks = List.map optimize_block func.blocks } in
-    
+
     (* 5. Remove unreachable blocks *)
     unreachable_code_elimination_pass optimized_func
   in
 
-  { functions = List.map optimize_function prog.functions }
+  { functions = List.map optimize_function inlined_prog.functions } (* Optimize the inlined program *)

@@ -1,19 +1,24 @@
 define _main():
-L1:
+L2:
+  x := 5
+  y := 10
   goto L3
 
 L3:
-  x := 20
-  goto L4
+  goto L1_inline1
 
-L4:
-  call _print_int(x)
-  goto L6
+L1_inline1:
+  _t1_inline1 := x + y
+  _t4 := _t1_inline1
+  goto _inline2
 
-L6:
-  x := 40
-  goto L7
+_inline2:
+  call _print_int(_t4)
 
-L7:
-  call _print_int(x)
+L5:
   return
+
+define add(x, y):
+L1:
+  _t1 := x + y
+  return _t1
