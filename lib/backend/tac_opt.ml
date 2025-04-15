@@ -1,7 +1,7 @@
 (* lib/backend/tac_opt.ml *)
 
 open Common.Tac
-open Common.Ast (* Need Ast.bop *)
+(* Removed 'open Common.Ast' to avoid name collisions with Tac constructors *)
 
 (* Helper modules for string maps and sets *)
 module SMap = Map.Make(String)
@@ -45,21 +45,22 @@ let has_side_effects (instr: instruction) : bool =
 (* --- Constant Folding --- *)
 
 (* Evaluate a binary operation on two constants *)
+(* Explicitly qualify bop from Common.Ast *)
 let eval_binop (op: Common.Ast.bop) (v1: int) (v2: int) : operand option =
   match op with
-  | Add  -> Some (Const (v1 + v2))
-  | Sub  -> Some (Const (v1 - v2))
-  | Mult -> Some (Const (v1 * v2))
-  | Div  -> if v2 != 0 then Some (Const (v1 / v2)) else None
-  | Mod  -> if v2 != 0 then Some (Const (v1 mod v2)) else None
-  | Lt   -> Some (Const (if v1 < v2 then 1 else 0))
-  | Leq  -> Some (Const (if v1 <= v2 then 1 else 0))
-  | Gt   -> Some (Const (if v1 > v2 then 1 else 0))
-  | Geq  -> Some (Const (if v1 >= v2 then 1 else 0))
-  | Eq   -> Some (Const (if v1 = v2 then 1 else 0))
-  | Neq  -> Some (Const (if v1 != v2 then 1 else 0))
-  | And  -> Some (Const (if v1 != 0 && v2 != 0 then 1 else 0))
-  | Or   -> Some (Const (if v1 != 0 || v2 != 0 then 1 else 0))
+  | Common.Ast.Add  -> Some (Const (v1 + v2))
+  | Common.Ast.Sub  -> Some (Const (v1 - v2))
+  | Common.Ast.Mult -> Some (Const (v1 * v2))
+  | Common.Ast.Div  -> if v2 != 0 then Some (Const (v1 / v2)) else None
+  | Common.Ast.Mod  -> if v2 != 0 then Some (Const (v1 mod v2)) else None
+  | Common.Ast.Lt   -> Some (Const (if v1 < v2 then 1 else 0))
+  | Common.Ast.Leq  -> Some (Const (if v1 <= v2 then 1 else 0))
+  | Common.Ast.Gt   -> Some (Const (if v1 > v2 then 1 else 0))
+  | Common.Ast.Geq  -> Some (Const (if v1 >= v2 then 1 else 0))
+  | Common.Ast.Eq   -> Some (Const (if v1 = v2 then 1 else 0))
+  | Common.Ast.Neq  -> Some (Const (if v1 != v2 then 1 else 0))
+  | Common.Ast.And  -> Some (Const (if v1 != 0 && v2 != 0 then 1 else 0))
+  | Common.Ast.Or   -> Some (Const (if v1 != 0 || v2 != 0 then 1 else 0))
 
 (* Apply constant folding to a single instruction *)
 let fold_instruction (instr: instruction) : instruction =
@@ -88,8 +89,12 @@ let update_copy_map_on_def (copy_map: operand SMap.t) (dest: string) : operand S
   let map_without_dest = SMap.remove dest copy_map in
   SMap.filter (fun _ (src_op: operand) -> src_op <> Var dest) map_without_dest
 
-(* Apply copy propagation within a list of instructions (intra-block) *)
-let copy_propagation_pass (instrs: instruction list) : instruction list =
+(* Apply copy propagation within a list of instructions (intra-block),
+   using reaching constants information for initialization. *)
+let copy_propagation_pass (instrs: instruction list) (const_in: int SMap.t) : instruction list =
+  (* Initialize the map with known constants at block entry, converting int to Const operand *)
+  let initial_map : operand SMap.t = SMap.map (fun c -> Const c) const_in in
+
   let rec propagate (acc_instrs: instruction list) (current_map: operand SMap.t) (remaining_instrs: instruction list) : instruction list =
     match remaining_instrs with
     | [] -> List.rev acc_instrs
@@ -128,7 +133,7 @@ let copy_propagation_pass (instrs: instruction list) : instruction list =
         in
         propagate (new_instr :: acc_instrs) next_map rest
   in
-  propagate [] SMap.empty instrs
+  propagate [] initial_map instrs (* Start with the initial map derived from const_in *)
 
 (* --- Dead Branch Elimination --- *)
 
@@ -316,6 +321,8 @@ type cfg_node = {
   successors: label list;   (* Made immutable *)
   mutable use_set: SSet.t; (* Variables used before definition in this block *)
   mutable def_set: SSet.t; (* Variables defined in this block *)
+  mutable const_in: int SMap.t; (* Constants known at block entry *)
+  mutable const_out: int SMap.t; (* Constants known at block exit *)
 }
 
 (* Control Flow Graph: Map from label to cfg_node *)
@@ -335,8 +342,10 @@ let build_cfg (blocks: basic_block list) : cfg =
         instrs = block.instrs;
         predecessors = []; (* Initialize empty *)
         successors = [];   (* Initialize empty *)
-        use_set = SSet.empty; (* Will be computed later *)
-        def_set = SSet.empty; (* Will be computed later *)
+        use_set = SSet.empty;
+        def_set = SSet.empty;
+        const_in = SMap.empty; (* Initialize empty *)
+        const_out = SMap.empty; (* Initialize empty *)
       } in
       LabelMap.add block.label node map
     ) LabelMap.empty blocks
@@ -513,12 +522,176 @@ let dead_code_elimination_pass (instrs: instruction list) (live_out: SSet.t) : i
   eliminate (List.rev instrs) live_out []
 
 
-(* --- Function and Program Optimization --- *)
-(* Optimize each function in the program *)
-let optimize_tac (prog: tac_program) : tac_program =
-  let inlined_prog = inline_functions prog in (* Apply inlining first *)
+(* --- Reaching Constants Analysis --- *)
 
-  let optimize_function func =
+(* Merge function for constant maps: Intersect bindings *)
+let merge_const_maps (map1: int SMap.t) (map2: int SMap.t) : int SMap.t =
+  SMap.merge (fun _ val1_opt val2_opt ->
+    match val1_opt, val2_opt with
+    | Some v1, Some v2 when v1 = v2 -> Some v1 (* Keep if values match *)
+    | _ -> None (* Discard if variable not in both or values differ *)
+  ) map1 map2
+
+(* Transfer function for a block: Update constant map based on instructions *)
+let transfer_const_block (instrs: instruction list) (const_in: int SMap.t) : int SMap.t =
+  List.fold_left (fun current_map instr ->
+    match instr with (* Reverted: Use constructors directly due to 'open Common.Tac' *)
+    | Assign (dest, Const c) -> SMap.add dest c current_map (* Define/redefine constant *)
+    | Assign (dest, Var v) ->
+        (match SMap.find_opt v current_map with
+         | Some c -> SMap.add dest c current_map (* Propagate constant copy *)
+         | None -> SMap.remove dest current_map (* Kill destination if source not constant *)
+        )
+    | BinOp (dest, Const c1, op, Const c2) ->
+        (match eval_binop op c1 c2 with
+         | Some (Const c_res) -> SMap.add dest c_res current_map (* Fold constant binop *)
+         | _ -> SMap.remove dest current_map (* Kill destination if binop not foldable or division by zero *)
+        )
+    | BinOp (dest, Var v1, op, Var v2) ->
+        (match SMap.find_opt v1 current_map, SMap.find_opt v2 current_map with
+         | Some c1, Some c2 ->
+             (match eval_binop op c1 c2 with
+              | Some (Const c_res) -> SMap.add dest c_res current_map
+              | _ -> SMap.remove dest current_map
+             )
+         | _ -> SMap.remove dest current_map (* Kill destination if operands not constant *)
+        )
+    | BinOp (dest, Var v, op, Const c) | BinOp (dest, Const c, op, Var v) ->
+         (match SMap.find_opt v current_map with
+          | Some c_v ->
+              (* Determine order for non-commutative ops *)
+              let c1, c2 = if match instr with BinOp(_, Const _, _, Var _) -> true | _ -> false then c, c_v else c_v, c in
+              (match eval_binop op c1 c2 with
+               | Some (Const c_res) -> SMap.add dest c_res current_map
+               | _ -> SMap.remove dest current_map
+              )
+          | _ -> SMap.remove dest current_map (* Kill destination if var operand not constant *)
+         )
+    (* Any other instruction that defines a variable kills its constant status *)
+    (* Removed redundant Assign(dest,_) and BinOp(dest,_,_,_) cases as they are covered by specific patterns above *)
+    | Call (Some dest, _, _) -> SMap.remove dest current_map (* Call with dest kills dest *)
+    (* Instructions without definitions or non-constant assignments don't affect the map in terms of adding constants,
+       but might kill existing ones if they redefine a variable (handled above) *)
+    | Label _ | Jump _ | CondJump _ | Return _ | Call (None, _, _) -> current_map
+  ) const_in instrs
+
+(* Analyze reaching constants using a forward dataflow analysis *)
+let analyze_reaching_constants (cfg: cfg) : unit =
+  let worklist = ref (LabelMap.fold (fun label _ acc -> label :: acc) cfg []) in (* Initial worklist with all labels *)
+  let entry_label_opt = LabelMap.min_binding_opt cfg |> Option.map fst in (* Assuming first block is entry *)
+
+  (* Initialize const_in and const_out for all nodes *)
+   LabelMap.iter (fun _ node ->
+       node.const_in <- SMap.empty;
+       node.const_out <- SMap.empty;
+   ) cfg;
+
+  (* Set initial state for entry block if it exists *)
+  (match entry_label_opt with
+   | Some entry_label ->
+       (match LabelMap.find_opt entry_label cfg with
+        | Some entry_node ->
+            entry_node.const_in <- SMap.empty; (* Entry IN is empty *)
+            entry_node.const_out <- transfer_const_block entry_node.instrs entry_node.const_in; (* Compute initial OUT *)
+            (* Add successors of entry to worklist initially *)
+            worklist := entry_node.successors;
+        | None -> worklist := [] (* Should not happen *)
+       )
+   | None -> worklist := [] (* No blocks in function *)
+  );
+
+
+  while !worklist <> [] do
+    let label = List.hd !worklist in
+    worklist := List.tl !worklist;
+
+    match LabelMap.find_opt label cfg with
+    | None -> Printf.eprintf "Warning: Reaching constants analysis encountered label '%s' not in CFG.\n" label
+    | Some node ->
+        (* 1. Calculate new const_in[B] = Merge(const_out[P] for P in Predecessors(B)) *)
+        let merged_in =
+          if Some label = entry_label_opt then
+            SMap.empty (* Entry block's IN is always empty *)
+          else
+            match node.predecessors with
+            | [] -> SMap.empty (* Should not happen for non-entry blocks *)
+            | first_pred :: rest_preds ->
+                (* Start with the OUT set of the first predecessor *)
+                let initial_map =
+                  match LabelMap.find_opt first_pred cfg with
+                  | Some pred_node -> pred_node.const_out
+                  | None -> SMap.empty (* Should not happen *)
+                in
+                (* Intersect (merge) with the OUT sets of the remaining predecessors *)
+                List.fold_left (fun acc_map pred_label ->
+                  match LabelMap.find_opt pred_label cfg with
+                  | Some pred_node -> merge_const_maps acc_map pred_node.const_out
+                  | None -> acc_map
+                ) initial_map rest_preds
+        in
+        let old_const_in = node.const_in in
+
+        (* 2. Check if const_in changed *)
+        if not (SMap.equal (=) merged_in old_const_in) then begin
+            node.const_in <- merged_in; (* Update const_in *)
+
+            (* 3. Calculate new const_out[B] using transfer function *)
+            let new_const_out = transfer_const_block node.instrs node.const_in in
+
+            (* 4. Check if const_out changed *)
+            if not (SMap.equal (=) new_const_out node.const_out) then begin
+              node.const_out <- new_const_out; (* Update const_out *)
+
+              (* 5. Add successors to worklist *)
+              List.iter (fun succ_label ->
+                if not (List.mem succ_label !worklist) then
+                  worklist := succ_label :: !worklist
+              ) node.successors
+            end
+        end
+  done
+
+
+(* Add these helper functions before optimize_tac *)
+
+(* Build a map from function name to the set of functions it calls directly *)
+let build_call_graph (functions: tac_function list) : SSet.t SMap.t =
+  List.fold_left (fun graph func ->
+    let callees = ref SSet.empty in
+    List.iter (fun (block : basic_block) -> (* Explicit type annotation *)
+      List.iter (fun instr ->
+        match instr with
+        | Call (_, fname, _) -> callees := SSet.add fname !callees
+        | _ -> ()
+      ) block.instrs
+    ) func.blocks;
+    SMap.add func.name !callees graph
+  ) SMap.empty functions
+
+(* Find all reachable functions starting from a set of entry points *)
+let find_reachable_functions (call_graph: SSet.t SMap.t) (entry_points: SSet.t) : SSet.t =
+  let reachable = ref entry_points in
+  let worklist = ref (SSet.elements entry_points) in
+  while !worklist <> [] do
+    let caller = List.hd !worklist in
+    worklist := List.tl !worklist;
+    match SMap.find_opt caller call_graph with
+    | Some callees ->
+        SSet.iter (fun callee ->
+          if not (SSet.mem callee !reachable) then begin
+            reachable := SSet.add callee !reachable;
+            worklist := callee :: !worklist
+          end
+        ) callees
+    | None -> () (* Function might not call anything or might not be in the graph (e.g., external) *)
+  done;
+  !reachable
+
+(* --- Function and Program Optimization --- *)
+
+(* Inner optimization function (used multiple times) *)
+(* Removed the erroneous 'let optimize_tac...' wrapper from here *)
+let optimize_function_pass (func: tac_function) : tac_function =
     (* 1. Build CFG *)
     let cfg = build_cfg func.blocks in
 
@@ -532,25 +705,36 @@ let optimize_tac (prog: tac_program) : tac_program =
     (* 3. Analyze Liveness *)
     let _live_in_map, live_out_map = analyze_liveness cfg in
 
-    (* 4. Optimize each block using liveness info *)
+    (* 4. Analyze Reaching Constants *)
+    analyze_reaching_constants cfg; (* Run the analysis *)
+
+    (* 5. Optimize each block using liveness and constant info *)
     let optimize_block (block: basic_block) : basic_block =
       let block_label = block.label in
       let live_out = LabelMap.find_opt block_label live_out_map |> Option.value ~default:SSet.empty in
 
       (* Iterate optimization passes until a fixed point is reached *)
-      let rec run_passes current_instrs =
+      let rec run_passes current_instrs block_const_in = (* Added block_const_in parameter *)
         let folded = constant_folding_pass current_instrs in
-        let propagated = copy_propagation_pass folded in
+        (* Pass block_const_in to copy_propagation_pass *)
+        let propagated = copy_propagation_pass folded block_const_in in (* Use block_const_in *)
         let dbe_optimized = dead_branch_elimination_pass propagated in
         let eliminated = dead_code_elimination_pass dbe_optimized live_out in
 
         if eliminated = current_instrs then
           current_instrs (* Fixed point reached *)
         else
-          run_passes eliminated (* Rerun passes *)
+          run_passes eliminated block_const_in (* Use block_const_in in recursive call *)
       in
 
-      let final_instrs = run_passes block.instrs in
+      (* Retrieve const_in for the block *)
+      let const_in =
+         match LabelMap.find_opt block_label cfg with
+         | Some node -> node.const_in
+         | None -> SMap.empty (* Should not happen *)
+      in
+      let final_instrs = run_passes block.instrs const_in in (* Pass const_in for initial call *)
+
       { block with instrs = final_instrs }
     in
 
@@ -558,7 +742,28 @@ let optimize_tac (prog: tac_program) : tac_program =
     let optimized_func = { func with blocks = List.map optimize_block func.blocks } in
 
     (* 5. Remove unreachable blocks *)
-    unreachable_code_elimination_pass optimized_func
-  in
+  unreachable_code_elimination_pass optimized_func
 
-  { functions = List.map optimize_function inlined_prog.functions } (* Optimize the inlined program *)
+(* Note: optimize_function_pass ends here *)
+
+(* Optimize each function in the program - Main entry point *)
+let optimize_tac (prog: tac_program) : tac_program =
+
+  (* --- Main Optimization Pipeline --- *)
+
+  (* 1. Initial Optimization Pass (before inlining) *)
+  let optimized_once_prog = { functions = List.map optimize_function_pass prog.functions } in
+
+  (* 2. Function Inlining *)
+  let inlined_prog = inline_functions optimized_once_prog in
+
+  (* 3. Second Optimization Pass (after inlining) *)
+  let optimized_twice_prog = { functions = List.map optimize_function_pass inlined_prog.functions } in
+
+  (* 4. Remove Unused Functions *)
+  let call_graph = build_call_graph optimized_twice_prog.functions in
+  let entry_points = SSet.singleton "_main" in (* Assuming _main is the entry point *)
+  let reachable_function_names = find_reachable_functions call_graph entry_points in
+  let final_functions = List.filter (fun f -> SSet.mem f.name reachable_function_names) optimized_twice_prog.functions in
+
+  { functions = final_functions }
