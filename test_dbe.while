@@ -1,0 +1,17 @@
+x : int := 0;
+
+if true then {
+  x := 10;
+} else {
+  x := 20;
+};
+
+print x;
+
+if false then {
+    x := 30;
+} else {
+    x := 40;
+};
+
+print x;

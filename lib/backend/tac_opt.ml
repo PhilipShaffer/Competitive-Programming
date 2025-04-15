@@ -29,6 +29,60 @@ type live_map = SSet.t LabelMap.t
 (* Map from block label to its (use, def) sets *)
 (* Removed unused type alias block_use_def_map *)
 
+(* --- Control Flow Graph Construction --- *)
+
+(* Builds the Control Flow Graph for a function *)
+let build_cfg (blocks: basic_block list) : cfg =
+  (* 1. Create initial nodes map (without links yet) *)
+  let initial_nodes =
+    List.fold_left (fun map block ->
+      let node = {
+        _label = block.label;
+        instrs = block.instrs;
+        predecessors = []; (* Initialize empty *)
+        successors = [];   (* Initialize empty *)
+        use_set = SSet.empty; (* Will be computed later *)
+        def_set = SSet.empty; (* Will be computed later *)
+      } in
+      LabelMap.add block.label node map
+    ) LabelMap.empty blocks
+  in
+
+  (* 2. Calculate successor lists for all nodes *)
+  let successor_map =
+    List.fold_left (fun map block ->
+      let next_block_opt =
+        let current_index_opt = List.find_index (fun b -> b.label = block.label) blocks in
+        match current_index_opt with
+        | Some i -> List.nth_opt blocks (i + 1)
+        | None -> None
+      in
+      let successors =
+        match List.rev block.instrs with
+        | (Jump lbl) :: _ -> [lbl]
+        | (CondJump (_, then_lbl, else_lbl)) :: _ -> [then_lbl; else_lbl]
+        | (Return _) :: _ -> []
+        | _ -> (match next_block_opt with Some nb -> [nb.label] | None -> [])
+      in
+      LabelMap.add block.label successors map
+    ) LabelMap.empty blocks
+  in
+
+  (* 3. Calculate predecessor lists based on successor map *)
+  let predecessor_map = ref LabelMap.empty in
+  LabelMap.iter (fun label successors ->
+    List.iter (fun succ_label ->
+      let current_preds = LabelMap.find_opt succ_label !predecessor_map |> Option.value ~default:[] in
+      predecessor_map := LabelMap.add succ_label (label :: current_preds) !predecessor_map
+    ) successors
+  ) successor_map;
+
+  (* 4. Create final CFG map with links *)
+  LabelMap.mapi (fun label node ->
+    let successors = LabelMap.find_opt label successor_map |> Option.value ~default:[] in
+    let predecessors = LabelMap.find_opt label !predecessor_map |> Option.value ~default:[] in
+    { node with successors = successors; predecessors = predecessors }
+  ) initial_nodes
 
 (* --- Helper Functions for Variable Use/Def Analysis --- *)
 
@@ -152,6 +206,61 @@ let copy_propagation_pass (instrs: instruction list) : instruction list =
   in
   propagate [] SMap.empty instrs
 
+(* --- Dead Branch Elimination --- *)
+
+(* Apply dead branch elimination to a list of instructions *)
+let dead_branch_elimination_pass (instrs: instruction list) : instruction list =
+  let rec eliminate (acc_instrs: instruction list) (remaining_instrs: instruction list) : instruction list =
+    match remaining_instrs with
+    | [] -> List.rev acc_instrs
+    | (CondJump (Const c, then_lbl, else_lbl)) :: rest ->
+        (* If condition is constant, replace with unconditional jump *)
+        let new_instr = 
+          if c != 0 then (* True condition *)
+            Jump then_lbl
+          else (* False condition *)
+            Jump else_lbl
+        in
+        eliminate (new_instr :: acc_instrs) rest
+    | instr :: rest ->
+        eliminate (instr :: acc_instrs) rest
+  in
+  eliminate [] instrs
+
+(* --- Unreachable Code Elimination --- *)
+
+(* Find all reachable blocks from a given starting label *)
+let find_reachable_blocks (cfg: cfg) (start_label: label) : SSet.t =
+  let visited = ref SSet.empty in
+  let rec visit label =
+    if not (SSet.mem label !visited) then begin
+      visited := SSet.add label !visited;
+      match LabelMap.find_opt label cfg with
+      | Some node -> List.iter visit node.successors
+      | None -> () (* Should not happen if CFG is well-formed *)
+    end
+  in
+  visit start_label;
+  !visited
+
+(* Remove unreachable blocks from a function *)
+let unreachable_code_elimination_pass (func: tac_function) : tac_function =
+  (* Build CFG for the function *)
+  let cfg = build_cfg func.blocks in
+  
+  (* Find all reachable blocks from the entry point (first block) *)
+  let entry_label = match func.blocks with
+    | [] -> "" (* Should not happen for valid functions *)
+    | first_block :: _ -> first_block.label
+  in
+  let reachable_labels = find_reachable_blocks cfg entry_label in
+  
+  (* Filter blocks to keep only reachable ones *)
+  let reachable_blocks = List.filter (fun block -> 
+    SSet.mem block.label reachable_labels
+  ) func.blocks in
+  
+  { func with blocks = reachable_blocks }
 
 (* --- Liveness Analysis & CFG Construction (Placeholders) --- *)
 
@@ -176,60 +285,6 @@ let compute_block_use_def (instrs: instruction list) : (SSet.t * SSet.t) =
   ) instrs;
 
   (!used_in_block, !defined_in_block)
-
-(* Builds the Control Flow Graph for a function (Simplified for Debugging) *)
-let build_cfg (blocks: basic_block list) : cfg =
-  (* 1. Create initial nodes map (without links yet) *)
-  let initial_nodes =
-    List.fold_left (fun (map: cfg) (block: basic_block) -> (* Explicit type annotations *)
-      let node : cfg_node = { (* Explicit type annotation *)
-        _label = block.label;
-        instrs = block.instrs;
-        predecessors = []; (* Initialize empty *)
-        successors = [];   (* Initialize empty *)
-        use_set = SSet.empty; (* Will be computed later *)
-        def_set = SSet.empty; (* Will be computed later *)
-      } in
-      LabelMap.add block.label node map
-    ) LabelMap.empty blocks (* <- Check if error occurs here *)
-  in
-
-  (* 2. Calculate successor lists for all nodes *)
-  let successor_map =
-    List.fold_left (fun (map: label list LabelMap.t) (block: basic_block) -> (* Corrected map type annotation *)
-      let next_block_opt : basic_block option = (* Explicit annotation *)
-        (* Find index safely *)
-        let current_index_opt = List.find_index (fun (b: basic_block) -> b.label = block.label) blocks in (* Explicit annotation *)
-        match current_index_opt with
-        | Some i -> List.nth_opt blocks (i + 1)
-        | None -> None (* Should not happen if block is from the list *)
-      in
-      let successors : label list = (* Explicit annotation *)
-        match List.rev block.instrs with
-        | (Jump lbl) :: _ -> [lbl]
-        | (CondJump (_, then_lbl, else_lbl)) :: _ -> [then_lbl; else_lbl]
-        | (Return _) :: _ -> []
-        | _ -> (match next_block_opt with Some nb -> [nb.label] | None -> [])
-      in
-      LabelMap.add block.label successors map
-    ) LabelMap.empty blocks
-  in
-
-  (* 3. Calculate predecessor lists based on successor map *)
-  let predecessor_map = ref LabelMap.empty in
-  LabelMap.iter (fun label successors ->
-    List.iter (fun succ_label ->
-      let current_preds = LabelMap.find_opt succ_label !predecessor_map |> Option.value ~default:[] in
-      predecessor_map := LabelMap.add succ_label (label :: current_preds) !predecessor_map
-    ) successors
-  ) successor_map;
-
-  (* 4. Create final CFG map with links *)
-  LabelMap.mapi (fun label node ->
-    let successors = LabelMap.find_opt label successor_map |> Option.value ~default:[] in
-    let predecessors = LabelMap.find_opt label !predecessor_map |> Option.value ~default:[] in
-    { node with successors = successors; predecessors = predecessors }
-  ) initial_nodes
 
 (* Performs iterative liveness analysis using a worklist algorithm *)
 let analyze_liveness (cfg: cfg) : (live_map * live_map) =
@@ -323,14 +378,14 @@ let optimize_tac (prog: tac_program) : tac_program =
     let cfg = build_cfg func.blocks in
 
     (* 2. Compute Use/Def for all blocks (populate cfg nodes) *)
-    LabelMap.iter (fun _ node -> (* Replaced unused 'label' with '_' *)
+    LabelMap.iter (fun _ node ->
       let use_def = compute_block_use_def node.instrs in
       node.use_set <- fst use_def;
       node.def_set <- snd use_def;
     ) cfg;
 
     (* 3. Analyze Liveness *)
-    let _live_in_map, live_out_map = analyze_liveness cfg in (* TODO: Use live_in if needed later *)
+    let _live_in_map, live_out_map = analyze_liveness cfg in
 
     (* 4. Optimize each block using liveness info *)
     let optimize_block (block: basic_block) : basic_block =
@@ -341,7 +396,8 @@ let optimize_tac (prog: tac_program) : tac_program =
       let rec run_passes current_instrs =
         let folded = constant_folding_pass current_instrs in
         let propagated = copy_propagation_pass folded in
-        let eliminated = dead_code_elimination_pass propagated live_out in (* Pass live_out here *)
+        let dbe_optimized = dead_branch_elimination_pass propagated in
+        let eliminated = dead_code_elimination_pass dbe_optimized live_out in
 
         if eliminated = current_instrs then
           current_instrs (* Fixed point reached *)
@@ -354,7 +410,10 @@ let optimize_tac (prog: tac_program) : tac_program =
     in
 
     (* Apply optimization to all blocks *)
-    { func with blocks = List.map optimize_block func.blocks }
+    let optimized_func = { func with blocks = List.map optimize_block func.blocks } in
+    
+    (* 5. Remove unreachable blocks *)
+    unreachable_code_elimination_pass optimized_func
   in
 
   { functions = List.map optimize_function prog.functions }
