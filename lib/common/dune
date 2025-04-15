@@ -2,6 +2,6 @@
  (name common)
  (public_name Competitive_Programming.common)
  (libraries base)
- (modules ast type_checker error)
+ (modules ast type_checker error tac)
  (preprocess
   (pps ppx_deriving.show ppx_deriving.eq))) 

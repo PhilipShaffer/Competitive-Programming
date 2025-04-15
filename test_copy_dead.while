@@ -1,0 +1,6 @@
+x : int := 10 + 5
+y : int := x
+z : int := y * 2
+a : int := 100
+print y
+print x

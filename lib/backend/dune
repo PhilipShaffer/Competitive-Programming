@@ -1,6 +1,6 @@
 (library
  (name backend)
- (libraries )
- (modules )
+ (libraries Competitive_Programming.common)
+ (modules tac_gen tac_opt)
  (preprocess
   (pps ppx_jane))) 
