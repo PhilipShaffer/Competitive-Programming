@@ -1,13 +1,13 @@
-f(x: int, y: int) -> int := {
-  z : int := x + y;
+f(x: float, y: float) -> float := {
+  z : float := x - y;
   return z
 };
 
-a : int := 2;
-b : int := 3;
-c : int := f(a, b);
-if c > 4 then {
-  k : int := 1
+a : float := 2.0;
+b : float := 3.0;
+c : float := f(a, b);
+if c > 4.0 then {
+  print 3
 } else {
-  p : int := 2
+  print 4
 }

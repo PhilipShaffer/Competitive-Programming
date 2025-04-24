@@ -1,4 +1,50 @@
-ld: warning: ignoring duplicate libraries: '-lLLVMSupport'
-ld: warning: reexported library with install name '/opt/homebrew/opt/llvm@18/lib/libunwind.1.dylib' found at '/opt/homebrew/Cellar/llvm@18/18.1.8/lib/libunwind.1.0.dylib' couldn't be matched with any parent library and will be linked directly
-HIR generated successfully!
-HBlock([HFunDecl(0, [1:int, 2:int], int, HBlock([HDeclare(3, int, HBinop(+, HVar(1:int), HVar(2:int), int)); HReturn(HVar(3:int))])); HDeclare(4, int, HInt(2)); HDeclare(5, int, HInt(3)); HDeclare(6, int, HFunCall(0, [HVar(4:int), HVar(5:int)], int)); HIf(HBinop(>, HVar(6:int), HInt(4), bool), HBlock([HDeclare(7, int, HInt(1))]), HBlock([HDeclare(8, int, HInt(2))]))])
+; ModuleID = 'PigletJIT'
+source_filename = "PigletJIT"
+
+@fmt_int = private unnamed_addr constant [6 x i8] c"%lld\0A\00", align 1
+@fmt_int.1 = private unnamed_addr constant [6 x i8] c"%lld\0A\00", align 1
+
+declare i32 @printf(ptr, ...)
+
+define i64 @main() {
+entry:
+  %var_6 = alloca double, align 8
+  %var_5 = alloca double, align 8
+  %var_4 = alloca double, align 8
+  store double 2.000000e+00, ptr %var_4, align 8
+  store double 3.000000e+00, ptr %var_5, align 8
+  %var_tmp = load double, ptr %var_4, align 8
+  %var_tmp1 = load double, ptr %var_5, align 8
+  %calltmp = call double @fun_0(double %var_tmp, double %var_tmp1)
+  store double %calltmp, ptr %var_6, align 8
+  %var_tmp2 = load double, ptr %var_6, align 8
+  %fcmp_tmp = fcmp ogt double %var_tmp2, 4.000000e+00
+  %ifcond = icmp ne i1 %fcmp_tmp, false
+  br i1 %ifcond, label %then, label %else
+
+then:                                             ; preds = %entry
+  %printf_call = call i32 (ptr, ...) @printf(ptr @fmt_int, i64 3)
+  br label %ifcont
+
+else:                                             ; preds = %entry
+  %printf_call3 = call i32 (ptr, ...) @printf(ptr @fmt_int.1, i64 4)
+  br label %ifcont
+
+ifcont:                                           ; preds = %else, %then
+  ret i64 0
+}
+
+define double @fun_0(double %arg_1, double %arg_2) {
+entry:
+  %var_3 = alloca double, align 8
+  %arg_22 = alloca double, align 8
+  store double %arg_2, ptr %arg_22, align 8
+  %arg_11 = alloca double, align 8
+  store double %arg_1, ptr %arg_11, align 8
+  %var_tmp = load double, ptr %arg_11, align 8
+  %var_tmp3 = load double, ptr %arg_22, align 8
+  %subtmp = fsub double %var_tmp, %var_tmp3
+  store double %subtmp, ptr %var_3, align 8
+  %var_tmp4 = load double, ptr %var_3, align 8
+  ret double %var_tmp4
+}

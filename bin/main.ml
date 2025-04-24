@@ -87,17 +87,16 @@ let () =
     Stdlib.print_endline "\nGenerating LLVM IR...";
     let llvm_module = Codegen.codegen_hir hir in
 
-    (* Print LLVM IR to stdout *) 
-    Stdlib.print_endline "\nLLVM IR:";
-    dump_module llvm_module;
+    (* Print LLVM IR to file *) 
+    let output_filename = "output.ll" in
+    Stdlib.print_endline ("\nWriting LLVM IR to " ^ output_filename ^ "...");
+    let () = print_module output_filename llvm_module in
+    Stdlib.print_endline "LLVM IR written successfully.";
 
-    (* Optional: Verify the module -- COMMENTED OUT FOR DEBUGGING *)
-    (* 
+    (* Re-enable Module verification *) 
     (match Llvm_analysis.verify_module llvm_module with
      | None -> Stdlib.print_endline "\nLLVM module verified successfully."
      | Some err -> Stdlib.print_endline ("\nLLVM module verification failed: " ^ err));
-    *) 
-    Stdlib.print_endline "\n(Module verification skipped)";
 
   with
   | Semant.Semantic_error msg ->
