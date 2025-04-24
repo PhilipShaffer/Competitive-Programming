@@ -6,8 +6,6 @@ open Ast
 
 module StdHashtbl = Stdlib.Hashtbl
 
-(* Helper function to print debug messages - use Stdlib *) 
-let debug_print msg = Stdlib.print_endline ("[DEBUG] " ^ msg)
 
 let context = global_context ()
 let the_module = create_module context "PigletJIT"
@@ -23,12 +21,11 @@ type symbol_tables = (int, llvalue) Stdlib.Hashtbl.t list
 
 (* Helper to find a variable's LLVM value in the symbol tables *)
 let rec lookup_var (tables : symbol_tables) (sym : int) : llvalue =
-  (* debug_print ("Looking up var: " ^ Int.to_string sym); *) 
   match tables with
   | [] -> failwith ("Codegen error: Symbol " ^ Int.to_string sym ^ " not found.")
   | current_scope :: parent_scopes ->
     match Stdlib.Hashtbl.find_opt current_scope sym with
-    | Some v -> (* debug_print ("Found var: " ^ Int.to_string sym); *) v
+    | Some v -> v
     | None -> lookup_var parent_scopes sym
 
 (* Type mapping *) 
@@ -42,23 +39,16 @@ let llvm_type_of (ty : value_type) : lltype =
 
 (* Forward declarations for mutual recursion *) 
 let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
-  debug_print ("Codegen Expr: " ^ (Hir.pp_hir_expr expr)); (* Use Hir printer *) 
   match expr with
-  | HVar (sym, ty) -> (* Use the type from HIR *) 
-      debug_print ("Processing HVar for sym: " ^ Int.to_string sym ^ " type: " ^ (Hir.pp_ty ty));
+  | HVar (sym, ty) -> 
       let value = lookup_var tables sym in
-      debug_print ("  HVar lookup done for sym: " ^ Int.to_string sym ^ " Type: " ^ (string_of_lltype (type_of value)));
       (match classify_type (type_of value) with
        | TypeKind.Pointer -> 
            let ptr = value in 
-           let expected_llvm_type = llvm_type_of ty in (* Get type from HIR *) 
-           debug_print ("  HVar is pointer for sym: " ^ Int.to_string sym ^ ", expected LLVM type: " ^ (string_of_lltype expected_llvm_type));
-           (* Use expected_llvm_type instead of element_type result *)
+           let expected_llvm_type = llvm_type_of ty in 
            let load_instr = build_load expected_llvm_type ptr "var_tmp" builder in
-           debug_print ("  HVar built load for sym: " ^ Int.to_string sym);
            load_instr
        | TypeKind.Function -> 
-           (* It's a function name - should not happen for HVar *) 
            failwith ("Codegen error: HVar used with function symbol " ^ Int.to_string sym)
        | _ -> 
            failwith ("Codegen error: HVar lookup did not return pointer for symbol " ^ Int.to_string sym))
@@ -134,11 +124,9 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
       let arg_types = Array.map ~f:type_of arg_vals in
       let ret_type = llvm_type_of ty in
       let func_type = function_type ret_type arg_types in
-      debug_print ("Building call to fun_" ^ Int.to_string sym); 
       build_call func_type callee_f arg_vals "calltmp" builder
 
 and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* Returns value for return statements *) =
-  debug_print ("Codegen Stmt: " ^ (Hir.pp_hir_stmt stmt)); (* Use Hir printer *) 
   match stmt with
   | HDeclare (sym, ty, expr) ->
       let current_function = block_parent (insertion_block builder) in
@@ -365,7 +353,6 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
 
 (* Main codegen function *) 
 let codegen_hir (hir : hir_stmt) : llmodule =
-  debug_print "Starting codegen_hir"; 
   let main_proto = function_type (i64_type context) [||] in
   let main_func = declare_function "main" main_proto the_module in
 
@@ -388,12 +375,8 @@ let codegen_hir (hir : hir_stmt) : llmodule =
   (* Verify the function *) 
   (match Llvm_analysis.verify_function main_func with
    | true -> ()
-   | false -> 
-       (* Stdio removed, use Stdlib.print_endline *) 
-       Stdlib.print_endline ("Codegen Warning: Invalid function generated: " ^ string_of_llvalue main_func);
-       Llvm_analysis.assert_valid_function main_func);
+   | false -> Stdlib.print_endline ("Warning: Invalid main function"); Llvm_analysis.assert_valid_function main_func);
 
-  debug_print "Finished codegen_hir"; 
   the_module
 
 (* Remove duplicated placeholder implementations *) 
