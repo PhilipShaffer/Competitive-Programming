@@ -6,6 +6,7 @@ type value_type =
   | FloatType
   | StringType
   | BoolType
+  | VoidType
 
 (* Unary operators - operations that take a single operand *)
 type uop =
@@ -37,6 +38,7 @@ type expr =
  | Bool of bool              (* Boolean literal: true, false *)
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
+ | FunCall of string * expr list  (* Function call: f(a, b, ...) *)
 
 (* Statements - represent actions or commands *)
 type stmt =
@@ -47,3 +49,5 @@ type stmt =
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
+ | FunDecl of string * (string * value_type) list * value_type * stmt  (* Function declaration: name, params, return type, body *)
+ | Return of expr           (* Return statement *)

@@ -33,6 +33,10 @@ rule read =
   | "and"   { AND }  (* Logical AND operator *)
   | "or"    { OR }  (* Logical OR operator *)
   | "not"   { NOT }  (* Logical NOT operator *)
+  | "return" { RETURN }  (* Return keyword *)
+  | "->" { ARROW }  (* Arrow for function return type *)
+  | "," { COMMA }  (* Comma for parameter/argument separation *)
+  | "void" { VOIDTYPE }  (* Void type keyword *)
   | "int"   { INTTYPE }  (* Integer type *)
   | "float" { FLOATTYPE }  (* Float type *)
   | "string" { STRINGTYPE }  (* String type *)
@@ -58,7 +62,6 @@ rule read =
   | "{"     { LBRACE }  (* Left brace *)
   | "}"     { RBRACE }  (* Right brace *)
   | ";"     { SEMICOLON }  (* Semicolon *)
-  | ","     { COMMA }  (* Comma *)
   | ":"     { COLON }  (* Colon *)
   | eof     { EOF }  (* End-of-file *)
 

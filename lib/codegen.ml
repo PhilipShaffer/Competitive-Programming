@@ -1,571 +1,408 @@
-open Llvm
 open Base
+(* open Stdio -- Remove unused open *) 
+open Llvm
+open Hir
 open Ast
 
-(* 
- * FUTURE IMPROVEMENT NOTES:
- * This code could be improved by implementing a more structured type system:
- * 1. Created a value_type enum to represent types (Int, Float, String, Bool) ✓
- * 2. Associate types with values in a single data structure ✓
- * 3. Use pattern matching for type checking instead of equality comparisons ✓
- * 4. Implement a unified get_expr_type function to centralize type determination ✓
- *)
+module StdHashtbl = Stdlib.Hashtbl
 
-(* Value type enum to represent types *)
-
-(* Typed value structure to associate types with values *)
-type typed_value = {
-  value: llvalue;  (* The LLVM value *)
-  typ: Ast.value_type; (* The type of the value *)
-}
+(* Helper function to print debug messages - use Stdlib *) 
+let debug_print msg = Stdlib.print_endline ("[DEBUG] " ^ msg)
 
 let context = global_context ()
-let the_module = create_module context "main"
+let the_module = create_module context "PigletJIT"
 let builder = builder context
-let named_values : (string, typed_value) Hashtbl.t = Hashtbl.create (module String)
-let int_type = i64_type context
-let float_type = double_type context (* double type chosen from LLVM - > Ocaml documenetation. float_type does NOT work*)
-let string_type = pointer_type context
 
-(* Helper function to get LLVM type from value_type *)
-let llvm_type_of_value_type = function
-  | Ast.IntType -> int_type
-  | Ast.FloatType -> float_type
-  | Ast.StringType -> string_type
-  | Ast.BoolType -> int_type  (* Bool is represented as i32 where 0 is false, non-zero is true *)
-;;
+(* Declare external printf function *) 
+let printf_ty = var_arg_function_type (i32_type context) [| pointer_type context |]
+let printf_func = declare_function "printf" printf_ty the_module
 
-(* Create an alloca instruction in the entry block of the function. This
- * is used for mutable variables etc. *)
-let create_entry_block_alloca the_function var_name typ =
-  let builder =
-    builder_at context (instr_begin (entry_block the_function))
-  in
-  build_alloca typ var_name builder
-;;
+(* Symbol table: list of hashtables mapping HIR sym (int) -> LLVM value *) 
+(* The list represents scopes, with the head being the current scope *) 
+type symbol_tables = (int, llvalue) Stdlib.Hashtbl.t list
 
-(* Helper function to get the type of an expression *)
-let rec get_expr_type = function
-  | Int _ -> Ast.IntType
-  | Float _ -> Ast.FloatType
-  | String _ -> Ast.StringType
-  | Bool _ -> Ast.BoolType
-  | Var name -> 
-      (match Hashtbl.find named_values name with
-       | Some typed_val -> typed_val.typ
-       | None -> Ast.IntType)  (* Default to IntType if not found *)
-  | Binop (op, lhs, rhs) ->
+(* Helper to find a variable's LLVM value in the symbol tables *)
+let rec lookup_var (tables : symbol_tables) (sym : int) : llvalue =
+  (* debug_print ("Looking up var: " ^ Int.to_string sym); *) 
+  match tables with
+  | [] -> failwith ("Codegen error: Symbol " ^ Int.to_string sym ^ " not found.")
+  | current_scope :: parent_scopes ->
+    match Stdlib.Hashtbl.find_opt current_scope sym with
+    | Some v -> (* debug_print ("Found var: " ^ Int.to_string sym); *) v
+    | None -> lookup_var parent_scopes sym
+
+(* Type mapping *) 
+let llvm_type_of (ty : value_type) : lltype =
+  match ty with
+  | IntType -> i64_type context (* Using 64-bit integers *)
+  | FloatType -> double_type context
+  | StringType -> pointer_type context (* char* *)
+  | BoolType -> i1_type context
+  | VoidType -> void_type context
+
+(* Forward declarations for mutual recursion *) 
+let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
+  debug_print ("Codegen Expr: " ^ (Hir.pp_hir_expr expr)); (* Use Hir printer *) 
+  match expr with
+  | HVar (sym, ty) -> (* Use the type from HIR *) 
+      debug_print ("Processing HVar for sym: " ^ Int.to_string sym ^ " type: " ^ (Hir.pp_ty ty));
+      let value = lookup_var tables sym in
+      debug_print ("  HVar lookup done for sym: " ^ Int.to_string sym ^ " Type: " ^ (string_of_lltype (type_of value)));
+      (match classify_type (type_of value) with
+       | TypeKind.Pointer -> 
+           let ptr = value in 
+           let expected_llvm_type = llvm_type_of ty in (* Get type from HIR *) 
+           debug_print ("  HVar is pointer for sym: " ^ Int.to_string sym ^ ", expected LLVM type: " ^ (string_of_lltype expected_llvm_type));
+           (* Use expected_llvm_type instead of element_type result *)
+           let load_instr = build_load expected_llvm_type ptr "var_tmp" builder in
+           debug_print ("  HVar built load for sym: " ^ Int.to_string sym);
+           load_instr
+       | TypeKind.Function -> 
+           (* It's a function name - should not happen for HVar *) 
+           failwith ("Codegen error: HVar used with function symbol " ^ Int.to_string sym)
+       | _ -> 
+           failwith ("Codegen error: HVar lookup did not return pointer for symbol " ^ Int.to_string sym))
+  | HInt i -> const_int (i64_type context) i
+  | HFloat f -> const_float (double_type context) f
+  | HString s -> build_global_stringptr s "str_tmp" builder
+  | HBool b -> const_int (i1_type context) (if b then 1 else 0)
+
+  | HBinop (op, e1, e2, _ty) ->
+      let lhs = codegen_expr tables e1 in
+      let rhs = codegen_expr tables e2 in
+      let lhs_type = type_of lhs in 
+      let is_float_op = match classify_type lhs_type with
+        | TypeKind.Double -> true
+        | _ -> false 
+      in
       (match op with
-       | Add | Sub | Mult | Div | Mod -> 
-           (* Check if either operand is float, result is float, otherwise int *)
-           if Poly.(=) (get_expr_type lhs) Ast.FloatType || Poly.(=) (get_expr_type rhs) Ast.FloatType then
-            Ast.FloatType
-           else
-             Ast.IntType
-       | Lt | Leq | Gt | Geq | Eq | Neq | And | Or ->
-           (* Comparison operators always return boolean *)
-           Ast.BoolType)
-  | Unop (op, expr) ->
+       | Add ->
+           if is_float_op then build_fadd lhs rhs "addtmp" builder
+           else build_add lhs rhs "addtmp" builder
+       | Sub ->
+           if is_float_op then build_fsub lhs rhs "subtmp" builder
+           else build_sub lhs rhs "subtmp" builder
+       | Mult ->
+           if is_float_op then build_fmul lhs rhs "multmp" builder
+           else build_mul lhs rhs "multmp" builder
+       | Div ->
+           if is_float_op then build_fdiv lhs rhs "divtmp" builder
+           else build_sdiv lhs rhs "divtmp" builder (* Signed integer division *)
+       | Mod -> build_srem lhs rhs "modtmp" builder (* Signed integer remainder *) 
+       (* Comparisons *) 
+       | Eq | Neq | Lt | Leq | Gt | Geq ->
+           if is_float_op then
+             let cmp_pred = 
+               match op with
+               | Eq  -> Llvm.Fcmp.Oeq | Neq -> Llvm.Fcmp.One
+               | Lt  -> Llvm.Fcmp.Olt | Leq -> Llvm.Fcmp.Ole
+               | Gt  -> Llvm.Fcmp.Ogt | Geq -> Llvm.Fcmp.Oge
+               | _   -> failwith "Impossible float comparison op" 
+             in
+             build_fcmp cmp_pred lhs rhs "fcmp_tmp" builder
+           else (* Integer or Bool comparison *) 
+             let cmp_pred = 
+               match op with 
+               | Eq  -> Llvm.Icmp.Eq  | Neq -> Llvm.Icmp.Ne
+               | Lt  -> Llvm.Icmp.Slt | Leq -> Llvm.Icmp.Sle (* Signed comparison *) 
+               | Gt  -> Llvm.Icmp.Sgt | Geq -> Llvm.Icmp.Sge (* Signed comparison *) 
+               | _   -> failwith "Impossible int/bool comparison op"
+             in
+             build_icmp cmp_pred lhs rhs "icmp_tmp" builder
+       (* Logical - LLVM uses integer ops for bools (i1) *) 
+       | And -> build_and lhs rhs "andtmp" builder
+       | Or -> build_or lhs rhs "ortmp" builder)
+
+  | HUnop (op, e, _) -> 
+      let operand = codegen_expr tables e in
+      let operand_type = type_of operand in
+      let is_float_op = match classify_type operand_type with
+        | TypeKind.Double -> true
+        | _ -> false
+      in
       (match op with
        | Neg -> 
-           (* Negation preserves the type (float or int) *)
-           let typ = get_expr_type expr in
-           if Poly.(=) typ Ast.FloatType then Ast.FloatType else Ast.IntType
+           if is_float_op then build_fneg operand "negtmp" builder
+           else build_neg operand "negtmp" builder
        | Not -> 
-           (* Logical not always returns boolean *)
-           Ast.BoolType)
-;;
+           (* LLVM 'not' is bitwise. For bool (i1), use xor with 1 (true) *) 
+           build_xor operand (const_int (i1_type context) 1) "nottmp" builder)
 
-(* Helper function to check if an expression is a string *)
-let is_string_expr expr = Poly.(=) (get_expr_type expr) Ast.StringType
-;;
+  | HFunCall (sym, args, ty) ->
+      let callee_f = lookup_var tables sym in
+      let arg_vals = List.map ~f:(codegen_expr tables) args |> Array.of_list in
+      let arg_types = Array.map ~f:type_of arg_vals in
+      let ret_type = llvm_type_of ty in
+      let func_type = function_type ret_type arg_types in
+      debug_print ("Building call to fun_" ^ Int.to_string sym); 
+      build_call func_type callee_f arg_vals "calltmp" builder
 
-(* Helper function to check if an expression is a float *)
-let is_float_expr expr = Poly.(=) (get_expr_type expr) Ast.FloatType
-;;
+and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* Returns value for return statements *) =
+  debug_print ("Codegen Stmt: " ^ (Hir.pp_hir_stmt stmt)); (* Use Hir printer *) 
+  match stmt with
+  | HDeclare (sym, ty, expr) ->
+      let current_function = block_parent (insertion_block builder) in
+      let entry_bb = entry_block current_function in
+      let first_instr_opt = instr_begin entry_bb in
+      let entry_builder = 
+          match first_instr_opt with 
+          | At_end _ -> builder_at_end context entry_bb
+          | Before first_instr -> builder_before context first_instr
+      in
+      let llvm_ty = llvm_type_of ty in
+      let ptr = build_alloca llvm_ty ("var_" ^ Int.to_string sym) entry_builder in
+      let init_val = codegen_expr tables expr in
+      ignore (build_store init_val ptr builder);
+      (match tables with
+       | current_scope :: _ -> Stdlib.Hashtbl.add current_scope sym ptr
+       | [] -> failwith "Codegen error: No current scope for declaration.");
+      None
 
-(* Helper function to extract the LLVM value from a typed_value or directly use a raw llvalue *)
-let get_llvm_value v = v.value
-;;
+  | HAssign (sym, expr) ->
+      let ptr = lookup_var tables sym in
+      let new_val = codegen_expr tables expr in
+      ignore (build_store new_val ptr builder);
+      None
 
-let rec codegen_expr = function
-  | Var name ->
-    (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values name with
-     | Some value ->
-        (* Determine how to handle the value based on its type *)
-        (match value.typ with
-         | Ast.StringType -> 
-            (* For string variables, just return the pointer *)
-            value
-         | Ast.FloatType ->
-            (* For float variables, load from the alloca *)
-            { value = build_load float_type value.value name builder; typ = Ast.FloatType }
-         | Ast.BoolType ->
-            (* For boolean variables, load from the alloca *)
-            { value = build_load int_type value.value name builder; typ = Ast.BoolType }
-         | Ast.IntType ->
-            (* For int variables, load from the alloca *)
-            { value = build_load int_type value.value name builder; typ = Ast.IntType })
-     | None -> raise (Failure ("unknown variable name: " ^ name)))
-  
-  | Int n -> 
-      { value = const_int int_type n; typ = Ast.IntType }
-  
-  | Float f -> 
-      { value = const_float float_type f; typ = Ast.FloatType }
-  
-  | Bool b -> 
-      { value = const_int int_type (if b then 1 else 0); typ = Ast.BoolType }
-  
-  | String s ->
-    (* For string literals, create a global string pointer *)
-    { value = build_global_stringptr s "str" builder; typ = Ast.StringType }
-  
-  | Binop (op, lhs, rhs) ->
-    let lhs_typed = codegen_expr lhs in
-    let rhs_typed = codegen_expr rhs in
-    let lhs_val = lhs_typed.value in
-    let rhs_val = rhs_typed.value in
-    
-    (* Get the types of the operands *)
-    let lhs_type = get_expr_type lhs in
-    let rhs_type = get_expr_type rhs in
-    
-    (* Check if either operand is a string and handle accordingly *)
-    if (match lhs_type, rhs_type with
-        | Ast.StringType, _ | _, Ast.StringType -> true
-        | _ -> false) then
-      (* For strings, we currently only support equality comparison *)
-      (match op with
-       | Eq ->
-          (* Use strcmp for string comparison *)
-          let strcmp_type = function_type int_type [| string_type; string_type |] in
-          let strcmp = declare_function "strcmp" strcmp_type the_module in
-          let result = build_call strcmp_type strcmp [| lhs_val; rhs_val |] "strcmp" builder in
-          (* strcmp returns 0 for equal strings, so we need to compare with 0 *)
-          let cmp = build_icmp Icmp.Eq result (const_int int_type 0) "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Neq ->
-          (* Use strcmp for string comparison *)
-          let strcmp_type = function_type int_type [| string_type; string_type |] in
-          let strcmp = declare_function "strcmp" strcmp_type the_module in
-          let result = build_call strcmp_type strcmp [| lhs_val; rhs_val |] "strcmp" builder in
-          (* strcmp returns 0 for equal strings, so we need to compare with 0 *)
-          let cmp = build_icmp Icmp.Ne result (const_int int_type 0) "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ =Ast.BoolType }
-       | _ -> raise (Failure "unsupported operation on strings"))
-    (* Check if either operand is a float and handle accordingly *)
-    else if (match lhs_type, rhs_type with
-             | Ast.FloatType, Ast.FloatType -> true        (* Changed from ast.f, _ || _, ast.f to not allow float + int*)
-             | _ -> false) then
-(*     
-      (* BRUG TIL TYPECASTING SENERE!!!!! *)
-             (* For float operations, we need to convert both operands to float if they're not already *)
-      let lhs_val = 
-        if Poly.(=) lhs_type Ast.FloatType then lhs_val 
-        else build_sitofp lhs_val float_type "float_cast" builder in 
-      let rhs_val = 
-        if Poly.(=) rhs_type Ast.FloatType then rhs_val 
-        else build_sitofp rhs_val float_type "float_cast" builder in
-*)     
-      (* Perform the float operation *)
-      match op with
-      | Add -> { value = build_fadd lhs_val rhs_val "addtmp" builder; typ = Ast.FloatType }
-      | Sub -> { value = build_fsub lhs_val rhs_val "subtmp" builder; typ = Ast.FloatType }
-      | Mult -> { value = build_fmul lhs_val rhs_val "multmp" builder; typ = Ast.FloatType }
-      | Div -> { value = build_fdiv lhs_val rhs_val "divtmp" builder; typ = Ast.FloatType }
-      | Mod -> { value = build_frem lhs_val rhs_val "modtmp" builder; typ = Ast.FloatType }
-      | Lt -> 
-         let cmp = build_fcmp Fcmp.Olt lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | Leq -> 
-         let cmp = build_fcmp Fcmp.Ole lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | Gt -> 
-         let cmp = build_fcmp Fcmp.Ogt lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | Geq -> 
-         let cmp = build_fcmp Fcmp.Oge lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | Eq -> 
-         let cmp = build_fcmp Fcmp.Oeq lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | Neq -> 
-         let cmp = build_fcmp Fcmp.One lhs_val rhs_val "cmptmp" builder in
-         { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-      | And ->
-         (* Convert condition values to booleans, then perform logical AND *)
-         let lhs_bool = build_fcmp Fcmp.One lhs_val (const_float float_type 0.0) "lhsbool" builder in
-         let rhs_bool = build_fcmp Fcmp.One rhs_val (const_float float_type 0.0) "rhsbool" builder in
-         let and_result = build_and lhs_bool rhs_bool "andtmp" builder in
-         { value = build_zext and_result int_type "booltmp" builder; typ = Ast.BoolType }
-      | Or ->
-         (* Convert condition values to booleans, then perform logical OR *)
-         let lhs_bool = build_fcmp Fcmp.One lhs_val (const_float float_type 0.0) "lhsbool" builder in
-         let rhs_bool = build_fcmp Fcmp.One rhs_val (const_float float_type 0.0) "rhsbool" builder in
-         let or_result = build_or lhs_bool rhs_bool "ortmp" builder in
-         { value = build_zext or_result int_type "booltmp" builder; typ = Ast.BoolType }
-    else
-      (* Standard integer operations *)
-      (match op with
-       | Add -> { value = build_add lhs_val rhs_val "addtmp" builder; typ = Ast.IntType }
-       | Sub -> { value = build_sub lhs_val rhs_val "subtmp" builder; typ = Ast.IntType }
-       | Mult -> { value = build_mul lhs_val rhs_val "multmp" builder; typ = Ast.IntType }
-       | Div -> { value = build_sdiv lhs_val rhs_val "divtmp" builder; typ = Ast.IntType }
-       | Mod -> { value = build_srem lhs_val rhs_val "modtmp" builder; typ = Ast.IntType }
-       | Lt -> 
-          let cmp = build_icmp Icmp.Slt lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Leq -> 
-          let cmp = build_icmp Icmp.Sle lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Gt -> 
-          let cmp = build_icmp Icmp.Sgt lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Geq -> 
-          let cmp = build_icmp Icmp.Sge lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Eq -> 
-          let cmp = build_icmp Icmp.Eq lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | Neq -> 
-          let cmp = build_icmp Icmp.Ne lhs_val rhs_val "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-       | And ->
-          (* Convert condition values to booleans, then perform logical AND *)
-          let lhs_bool = build_icmp Icmp.Ne lhs_val (const_int int_type 0) "lhsbool" builder in
-          let rhs_bool = build_icmp Icmp.Ne rhs_val (const_int int_type 0) "rhsbool" builder in
-          let and_result = build_and lhs_bool rhs_bool "andtmp" builder in
-          { value = build_zext and_result int_type "booltmp" builder; typ = Ast.BoolType }
-       | Or ->
-          (* Convert condition values to booleans, then perform logical OR *)
-          let lhs_bool = build_icmp Icmp.Ne lhs_val (const_int int_type 0) "lhsbool" builder in
-          let rhs_bool = build_icmp Icmp.Ne rhs_val (const_int int_type 0) "rhsbool" builder in
-          let or_result = build_or lhs_bool rhs_bool "ortmp" builder in
-          { value = build_zext or_result int_type "booltmp" builder; typ = Ast.BoolType })
-  
-  | Unop (op, expr) ->
-    let expr_typed = codegen_expr expr in
-    let expr_val = expr_typed.value in
-    let expr_type = get_expr_type expr in
-    
-    (match op with
-     | Neg -> 
-        if Poly.(=) expr_type Ast.FloatType then
-          { value = build_fneg expr_val "negtmp" builder; typ = Ast.FloatType }
-        else
-          { value = build_neg expr_val "negtmp" builder; typ = Ast.IntType }
-     | Not ->
-        (* For logical not, we check if the expression is equal to 0 (false) *)
-        if Poly.(=) expr_type Ast.FloatType then
-          let cmp = build_fcmp Fcmp.Oeq expr_val (const_float float_type 0.0) "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType }
-        else
-          let cmp = build_icmp Icmp.Eq expr_val (const_int int_type 0) "cmptmp" builder in
-          { value = build_zext cmp int_type "booltmp" builder; typ = Ast.BoolType })
+  | HBlock stmts ->
+      List.fold stmts ~init:None ~f:(fun ret_opt s ->
+          match ret_opt with
+          | Some _ -> ret_opt
+          | None -> codegen_stmt tables s
+        )
 
-and codegen_stmt = function
-  (* Updated Assign case to include type checking *)
-  | Declare (var, declared_type, expr) ->
-   (* Generate code for the initializer expression *)
-   let init_typed = codegen_expr expr in
+  | HReturn expr ->
+      let ret_val = codegen_expr tables expr in
+      ignore (build_ret ret_val builder);
+      Some ret_val
 
-   (* Check if the declared type matches the initializer type *)
-   if Poly.(=) (declared_type : Ast.value_type) (init_typed.typ : Ast.value_type) then
-     (match declared_type with
-      | Ast.StringType ->
-         (* For strings, just store the reference directly *)
-         Hashtbl.set named_values ~key:var ~data:init_typed;
-         init_typed
-      | Ast.FloatType ->
-         (* Create an alloca for floats *)
-         let the_function = block_parent (insertion_block builder) in
-         let alloca = create_entry_block_alloca the_function var float_type in
+  | HIf (cond_expr, then_stmt, else_stmt) ->
+      let cond_val = codegen_expr tables cond_expr in
+      let bool_cond = build_icmp Llvm.Icmp.Ne cond_val (const_int (i1_type context) 0) "ifcond" builder in
 
-         (* Add the variable to the symbol table *)
-         let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+      let start_bb = insertion_block builder in
+      let the_function = block_parent start_bb in
 
-         (* Convert the initializer value to float if necessary *)
-         let value_to_store =
-           if Poly.(=) init_typed.typ Ast.IntType then
-             build_sitofp init_typed.value float_type "float_cast" builder
-           else
-             init_typed.value
-         in
+      (* Create blocks for the branches *) 
+      let then_bb = append_block context "then" the_function in
+      let else_bb = append_block context "else" the_function in
+      let merge_bb = append_block context "ifcont" the_function in
 
-         (* Store the value in the allocated memory *)
-         ignore (build_store value_to_store alloca builder);
+      (* Conditional branch *) 
+      ignore (build_cond_br bool_cond then_bb else_bb builder);
 
-         (* Return the initialized value *)
-         { value = alloca; typ = Ast.FloatType }
-      | _ ->
-         (* Create an alloca for other types *)
-         let the_function = block_parent (insertion_block builder) in
-         let alloca = create_entry_block_alloca the_function var (llvm_type_of_value_type declared_type) in
+      (* Build then branch *) 
+      position_at_end then_bb builder;
+      let then_ret_opt = codegen_stmt tables then_stmt in
+      (* Add branch to merge block if 'then' doesn't end with return *) 
+      if Option.is_none (block_terminator (insertion_block builder)) then
+        ignore (build_br merge_bb builder);
+      let _then_bb_end = insertion_block builder in (* Mark unused *)
 
-         (* Add the variable to the symbol table *)
-         let typed_alloca = { value = alloca; typ = declared_type } in
-         Hashtbl.set named_values ~key:var ~data:typed_alloca;
+      (* Build else branch *) 
+      position_at_end else_bb builder;
+      let else_ret_opt = codegen_stmt tables else_stmt in
+      (* Add branch to merge block if 'else' doesn't end with return *) 
+      if Option.is_none (block_terminator (insertion_block builder)) then
+        ignore (build_br merge_bb builder);
+      let _else_bb_end = insertion_block builder in (* Mark unused *) 
 
-         (* Store the value in the allocated memory *)
-         ignore (build_store init_typed.value alloca builder);
+      (* Position builder at merge block *) 
+      position_at_end merge_bb builder;
+      
+      (* Check if both branches returned *) 
+      (match then_ret_opt, else_ret_opt with
+       | Some _, Some _ -> 
+           (* If both branches return, the merge block might be unreachable. *) 
+           (* Depending on LLVM version/opts, might need explicit unreachable *) 
+           (* For now, assume it's okay or handled by LLVM *) 
+           None 
+       | _ -> None) (* If only one or none returned, execution continues *) 
 
-         (* Return the initialized value *)
-         init_typed)
-   else
-     (* Raise an error if the types do not match *)
-     raise (Failure (Printf.sprintf "Type mismatch in declaration: variable '%s' declared as %s but initialized with %s"
-                       var
-                       (match declared_type with
-                        | Ast.IntType -> "int"
-                        | Ast.FloatType -> "float"
-                        | Ast.StringType -> "string"
-                        | Ast.BoolType -> "bool")
-                       (match init_typed.typ with
-                        | Ast.IntType -> "int"
-                        | Ast.FloatType -> "float"
-                        | Ast.StringType -> "string"
-                        | Ast.BoolType -> "bool")))
-  | Assign (var, expr) ->
-    (* Evaluate the expression to get the value *)
-    let value_typed = codegen_expr expr in
-    
-    (* Look up the name in the symbol table *)
-    (match Hashtbl.find named_values var with
-     | Some existing_var ->
-        (* Check if the types match *)
-        if Poly.(=) existing_var.typ value_typed.typ then
-          (* Types match, update the value *)
-          (match existing_var.typ with
-           | Ast.StringType ->
-              (* For strings, just update the reference *)
-              Hashtbl.set named_values ~key:var ~data:value_typed;
-              value_typed
-           | _ ->
-              (* For other types, store in the alloca *)
-              ignore (build_store value_typed.value existing_var.value builder);
-              value_typed)
-        else
-          (* Types do not match, raise an error *)
-          raise (Failure (Printf.sprintf "Type mismatch: variable '%s' is of type %s but one or more of assigned values are of type %s"
-                            var
-                            (match existing_var.typ with
-                             | Ast.IntType -> "Int"
-                             | Ast.FloatType -> "Float"
-                             | Ast.StringType -> "String"
-                             | Ast.BoolType -> "Bool")
-                            (match value_typed.typ with
-                             | Ast.IntType -> "Int"
-                             | Ast.FloatType -> "Float"
-                             | Ast.StringType -> "String"
-                             | Ast.BoolType -> "Bool")))
-     | None ->
-        (* Variable not declared, raise an error *)
-        raise (Failure (Printf.sprintf "Variable '%s' not declared" var)))
+  | HFunDecl (fun_sym, params, ret_ty, body) ->
+      let param_tys = List.map ~f:(fun (_, ty) -> llvm_type_of ty) params |> Array.of_list in
+      let llvm_ret_ty = llvm_type_of ret_ty in
+      let fun_ty = function_type llvm_ret_ty param_tys in
+      
+      (* Use a distinct name for the LLVM function, e.g., "fun_" + symbol *) 
+      let fun_name = "fun_" ^ Int.to_string fun_sym in
+      let the_function = declare_function fun_name fun_ty the_module in
 
-  (* Updated Let case to include type checking *)
-  | Let (var, expr, body) ->
-    (* Evaluate the initializer *)
-    let init_typed = codegen_expr expr in
-    
-    (* Save the old variable binding if it exists *)
-    let old_binding = Hashtbl.find named_values var in
-    
-    (* Handle based on the expression type *)
-    (match expr with
-     | String _ ->
-        (* For strings, just store the pointer directly *)
-        Hashtbl.set named_values ~key:var ~data:init_typed;
-     | Float _ ->
-        (* For floats, create an alloca and store *)
-        let the_function = block_parent (insertion_block builder) in
-        let alloca = create_entry_block_alloca the_function var float_type in
-        ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.FloatType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
-     | Bool _ ->
-        (* For booleans, create an alloca and store *)
-        let the_function = block_parent (insertion_block builder) in
-        let alloca = create_entry_block_alloca the_function var int_type in
-        ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.BoolType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
-     | Int _ ->
-        (* For ints, create an alloca and store *)
-        let the_function = block_parent (insertion_block builder) in
-        let alloca = create_entry_block_alloca the_function var int_type in
-        ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca;
-     | _ ->
-        (* For other types, create an alloca and store *)
-        let the_function = block_parent (insertion_block builder) in
-        let alloca = create_entry_block_alloca the_function var int_type in
-        ignore (build_store init_typed.value alloca builder);
-        let typed_alloca = { value = alloca; typ = Ast.IntType } in
-        Hashtbl.set named_values ~key:var ~data:typed_alloca);
-    
-    (* Generate code for the body *)
-    let body_typed = codegen_stmt body in
-    
-    (* Restore the old binding if it existed *)
-    (match old_binding with
-     | Some old_value -> Hashtbl.set named_values ~key:var ~data:old_value
-     | None -> Hashtbl.remove named_values var);
-    
-    (* Return the value of the body *)
-    body_typed
-  
-  | If (cond, then_stmt, else_stmt) ->
-    (* Generate code for the condition *)
-    let cond_typed = codegen_expr cond in
-    let cond_type = get_expr_type cond in
-    
-    (* Convert condition to a boolean value *)
-    let cond_val = 
-      if Poly.(=) cond_type Ast.FloatType then
-        (* For float conditions, compare with 0.0 *)
-        let zero = const_float float_type 0.0 in
-        build_fcmp Fcmp.One cond_typed.value zero "ifcond" builder
-      else
-        (* For int conditions, compare with 0 *)
-        let zero = const_int int_type 0 in
-        build_icmp Icmp.Ne cond_typed.value zero "ifcond" builder
-    in
-    
-    (* Get the current function *)
-    let start_bb = insertion_block builder in
-    let the_function = block_parent start_bb in
-    
-    (* Create blocks for the then, else, and merge cases *)
-    let then_bb = append_block context "then" the_function in
-    let else_bb = append_block context "else" the_function in
-    let merge_bb = append_block context "ifcont" the_function in
-    
-    (* Create the conditional branch instruction *)
-    ignore (build_cond_br cond_val then_bb else_bb builder);
-    
-    (* Generate code for the then branch *)
-    position_at_end then_bb builder;
-    let then_typed = codegen_stmt then_stmt in
-    
-    (* Branch to the merge block *)
-    ignore (build_br merge_bb builder);
-    
-    (* Get the updated then block for the phi node *)
-    let then_bb = insertion_block builder in
-    
-    (* Generate code for the else branch *)
-    position_at_end else_bb builder;
-    let else_typed = codegen_stmt else_stmt in
-    
-    (* Branch to the merge block *)
-    ignore (build_br merge_bb builder);
-    
-    (* Get the updated else block for the phi node *)
-    let else_bb = insertion_block builder in
-    
-    (* Generate code for the merge block - position first, then create PHI *)
-    position_at_end merge_bb builder;
-    
-    (* Create a PHI node *)
-    let phi = build_phi [(then_typed.value, then_bb); (else_typed.value, else_bb)] "iftmp" builder in
-    
-    { value = phi; typ = Ast.BoolType }
-  
-  | While (cond, body) ->
-    (* Create the loop condition and body blocks *)
-    let the_function = block_parent (insertion_block builder) in
-    let cond_bb = append_block context "while.cond" the_function in
-    let body_bb = append_block context "while.body" the_function in
-    let after_bb = append_block context "while.end" the_function in
-    
-    (* Branch to the condition block *)
-    ignore (build_br cond_bb builder);
-    
-    (* Generate code for the condition block *)
-    position_at_end cond_bb builder;
-    let cond_typed = codegen_expr cond in
-    let cond_type = get_expr_type cond in
-    
-    let cond_val = 
-      if Poly.(=) cond_type Ast.FloatType then
-        (* For float conditions, compare with 0.0 *)
-        let zero = const_float float_type 0.0 in
-        build_fcmp Fcmp.One cond_typed.value zero "whilecond" builder
-      else
-        (* For int conditions, compare with 0 *)
-        let zero = const_int int_type 0 in
-        build_icmp Icmp.Ne cond_typed.value zero "whilecond" builder
-    in
-    ignore (build_cond_br cond_val body_bb after_bb builder);
-    
-    (* Generate code for the body block *)
-    position_at_end body_bb builder;
-    ignore (codegen_stmt body);
-    
-    (* Loop back to the condition block *)
-    ignore (build_br cond_bb builder);
-    
-    (* Continue with the code after the loop *)
-    position_at_end after_bb builder;
-    
-    (* Return a consistent value (0 for now) *)
-    { value = const_int int_type 0; typ = Ast.IntType }
-  
-  | Print expr ->
-    (* Evaluate the expression to get the value *)
-    let value_typed = codegen_expr expr in
-    let expr_type = get_expr_type expr in
-    
-    (* Get the printf function - note it's a variadic function *)
-    let printf_type = var_arg_function_type int_type [| pointer_type context |] in
-    let printf = declare_function "printf" printf_type the_module in
-    
-    (* Create appropriate format string based on expression type *)
-    let format_str = 
-      match expr_type with
-      | Ast.StringType -> build_global_stringptr "%s\n" "fmt" builder
-      | Ast.FloatType -> build_global_stringptr "%f\n" "fmt" builder
-      | _ -> build_global_stringptr "%d\n" "fmt" builder
-    in
-    
-    (* Call printf with the format string and value *)
-    ignore (build_call printf_type printf [| format_str; value_typed.value |] "printf" builder);
-    
-    (* Return a constant 0 instead of the value, to avoid affecting program return *)
-    { value = const_int int_type 0; typ = Ast.IntType }
-  
-  | Block stmts ->
-    (* Execute each statement in the block and return the value of the last one *)
-    let rec process_stmts = function
-      | [] -> { value = const_int int_type 0; typ = Ast.IntType }  (* Empty block returns 0 *)
-      | [last] -> codegen_stmt last  (* Last statement's value is returned *)
-      | first :: rest ->
-          ignore (codegen_stmt first);  (* Execute but ignore intermediate results *)
-          process_stmts rest
-    in
-    process_stmts stmts
+      (* Add function to the *parent* scope *) 
+      (match tables with
+       | _ :: parent_scope :: _ -> Stdlib.Hashtbl.add parent_scope fun_sym the_function
+       | [global_scope] -> Stdlib.Hashtbl.add global_scope fun_sym the_function
+       | [] -> failwith "Codegen error: No scope available for function declaration.");
 
-(* Top-level function to compile a program *)
-let compile program =
-  (* Create main function *)
-  let main_ty = function_type int_type [| |] in
-  let main_fn = declare_function "main" main_ty the_module in
-  
-  (* Create entry block in main function *)
-  let entry = append_block context "entry" main_fn in
-  position_at_end entry builder;
-  
-  (* Generate code for the program *)
-  let _ = codegen_stmt program in
-  
-  (* Return 0 from main function (standard success exit code) *)
-  ignore (build_ret (const_int int_type 0) builder);
-  
-  (* Verify the module *)
-  Llvm_analysis.assert_valid_module the_module;
-  
+      (* Create a new scope for the function body *) 
+      let fun_scope = Stdlib.Hashtbl.create 16 in
+      let body_tables = fun_scope :: tables in
+
+      (* Create entry block for the function *) 
+      let entry_bb = append_block context "entry" the_function in
+      let old_builder_pos = insertion_block builder in
+      position_at_end entry_bb builder; (* Position main builder inside function *) 
+
+      (* Allocate and store parameters using the main builder (now inside function) *) 
+      Array.iteri (params |> Array.of_list) ~f:(fun i (param_sym, param_ty) ->
+          let arg_val = param the_function i in
+          let arg_name = "arg_" ^ Int.to_string param_sym in
+          set_value_name arg_name arg_val;
+          let entry_builder = 
+              match instr_begin entry_bb with
+              | At_end _ -> builder_at_end context entry_bb
+              | Before first_instr -> builder_before context first_instr
+          in
+          let ptr = build_alloca (llvm_type_of param_ty) arg_name entry_builder in
+          ignore (build_store arg_val ptr entry_builder); 
+          Stdlib.Hashtbl.add fun_scope param_sym ptr
+        );
+
+      (* Generate code for the function body *) 
+      let _body_ret_opt = codegen_stmt body_tables body in (* Mark unused *)
+
+      (* Add default return if necessary *) 
+      (match block_terminator (insertion_block builder) with
+       | None -> 
+           (match ret_ty with
+            | VoidType -> ignore (build_ret_void builder)
+            | IntType -> ignore (build_ret (const_int (i64_type context) 0) builder) (* Default return 0 for int *) 
+            | FloatType -> ignore (build_ret (const_float (double_type context) 0.0) builder)
+            | BoolType -> ignore (build_ret (const_int (i1_type context) 0) builder)
+            | StringType -> 
+                let string_ptr_type = pointer_type context in
+                ignore(build_ret (const_null string_ptr_type) builder)
+           )
+       | Some _ -> ()); (* Block already terminated *) 
+
+      (* Verify the generated function *) 
+      (match Llvm_analysis.verify_function the_function with
+       | true -> ()
+       | false -> 
+           (* Stdio removed, use Stdlib.print_endline *) 
+           Stdlib.print_endline ("Codegen Warning: Invalid function generated: " ^ string_of_llvalue the_function);
+           Llvm_analysis.assert_valid_function the_function);
+
+      (* Restore builder position *) 
+      position_at_end old_builder_pos builder;
+      None (* Function declaration itself doesn't return a value in the outer scope *) 
+
+  | HPrint expr ->
+      let value_to_print = codegen_expr tables expr in
+      let expr_ty = Hir.type_of_expr expr in
+      let _, print_args = (* Mark format_str as unused *) 
+        match expr_ty with
+        | IntType -> 
+            let fmt = build_global_stringptr "%lld\n" "fmt_int" builder in
+            fmt, [| fmt; value_to_print |]
+        | FloatType ->
+            let fmt = build_global_stringptr "%f\n" "fmt_float" builder in
+            (* C printf expects double for %f *) 
+            fmt, [| fmt; value_to_print |] 
+        | StringType ->
+            let fmt = build_global_stringptr "%s\n" "fmt_str" builder in
+            fmt, [| fmt; value_to_print |]
+        | BoolType ->
+            let fmt = build_global_stringptr "%d\n" "fmt_bool" builder in
+            (* Print bool as 0 or 1 (integer) *) 
+            fmt, [| fmt; value_to_print |]
+        | VoidType -> 
+            failwith "Cannot print void type" 
+      in
+      ignore (build_call printf_ty printf_func print_args "printf_call" builder);
+      None (* Print doesn't return a value *) 
+
+  | HLet (sym, expr, body_stmt) ->
+      let let_scope = Stdlib.Hashtbl.create 8 in
+      let body_tables = let_scope :: tables in
+      let current_function = block_parent (insertion_block builder) in
+      let entry_bb = entry_block current_function in
+      let first_instr_opt = instr_begin entry_bb in
+      let entry_builder = 
+          match first_instr_opt with 
+          | At_end _ -> builder_at_end context entry_bb
+          | Before first_instr -> builder_before context first_instr
+      in
+      let var_ty = Hir.type_of_expr expr in 
+      let llvm_ty = llvm_type_of var_ty in
+      let ptr = build_alloca llvm_ty ("let_var_" ^ Int.to_string sym) entry_builder in
+      let init_val = codegen_expr tables expr in 
+      ignore (build_store init_val ptr builder);
+      Stdlib.Hashtbl.add let_scope sym ptr;
+      let _ = codegen_stmt body_tables body_stmt in 
+      None
+
+  | HWhile (cond_expr, body_stmt) ->
+      let the_function = block_parent (insertion_block builder) in
+      
+      (* Create blocks *) 
+      let loop_cond_bb = append_block context "loop_cond" the_function in
+      let loop_body_bb = append_block context "loop_body" the_function in
+      let after_loop_bb = append_block context "after_loop" the_function in
+
+      (* Branch to condition check *) 
+      ignore (build_br loop_cond_bb builder);
+
+      (* Build condition block *) 
+      position_at_end loop_cond_bb builder;
+      let cond_val = codegen_expr tables cond_expr in
+      let bool_cond = build_icmp Llvm.Icmp.Ne cond_val (const_int (i1_type context) 0) "whilecond" builder in
+      ignore (build_cond_br bool_cond loop_body_bb after_loop_bb builder);
+
+      (* Build loop body block *) 
+      position_at_end loop_body_bb builder;
+      let _ = codegen_stmt tables body_stmt in (* Generate body *) 
+      (* Branch back to condition check *) 
+      if Option.is_none (block_terminator (insertion_block builder)) then (* Avoid branch if body already returned *) 
+        ignore (build_br loop_cond_bb builder);
+
+      (* Position builder at the after-loop block *) 
+      position_at_end after_loop_bb builder;
+      None (* While loop doesn't return a value *) 
+
+  (* Remove final placeholder as all statements are handled *) 
+  (* | _ -> failwith ("Codegen not implemented for statement: " ^ pp_hir_stmt stmt) *) 
+
+(* Main codegen function *) 
+let codegen_hir (hir : hir_stmt) : llmodule =
+  debug_print "Starting codegen_hir"; 
+  let main_proto = function_type (i64_type context) [||] in
+  let main_func = declare_function "main" main_proto the_module in
+
+  (* Create entry block *) 
+  let entry_bb = append_block context "entry" main_func in
+  position_at_end entry_bb builder;
+
+  (* Initial scope *) 
+  let initial_scope = StdHashtbl.create 16 in
+  let tables = [initial_scope] in
+
+  (* Generate code for the main program body *) 
+  let _ = codegen_stmt tables hir in
+
+  (* Add a default return 0 for main if not already terminated *) 
+  (match block_terminator (insertion_block builder) with
+   | None -> ignore (build_ret (const_int (i64_type context) 0) builder)
+   | Some _ -> ());
+
+  (* Verify the function *) 
+  (match Llvm_analysis.verify_function main_func with
+   | true -> ()
+   | false -> 
+       (* Stdio removed, use Stdlib.print_endline *) 
+       Stdlib.print_endline ("Codegen Warning: Invalid function generated: " ^ string_of_llvalue main_func);
+       Llvm_analysis.assert_valid_function main_func);
+
+  debug_print "Finished codegen_hir"; 
   the_module
+
+(* Remove duplicated placeholder implementations *) 
+(* 
+and codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
+  match expr with
+  | _ -> failwith ("Codegen not implemented for expression: " ^ pp_hir_expr expr)
+
+and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option =
+  match stmt with
+  | _ -> failwith ("Codegen not implemented for statement: " ^ pp_hir_stmt stmt) 
+*) 
