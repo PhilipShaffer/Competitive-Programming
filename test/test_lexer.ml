@@ -54,8 +54,8 @@ let test_literals () =
 
 let test_identifiers () =
   check (list token_testable) "identifiers"
-    [ID "x"; ID "myVar"; ID "anotherID123"]
-    (lex_string "x myVar anotherID123")
+    [ID "x"; ID "myVar"; ID "anotherID123"; INT 123; ID "acd"]
+    (lex_string "x myVar anotherID123 123acd")
 
 let test_whitespace_and_newlines () =
   check (list token_testable) "whitespace and newlines"
@@ -69,6 +69,33 @@ let test_mixed () =
     [INTTYPE; ID "main"; LPAREN; RPAREN; LBRACE; PRINT; LPAREN; STRING "Hello"; RPAREN; SEMICOLON; RETURN; INT 0; SEMICOLON; RBRACE]
     (lex_string "int main() { print(\"Hello\"); return 0; }")
 
+(* Additional test cases *)
+
+let test_string_escapes () =
+  check (list token_testable) "string escape sequences"
+    [STRING "tab\tcharacter"; STRING "newline\ncharacter"; STRING "quote\"character"; STRING "backslash\\character"]
+    (lex_string "\"tab\\tcharacter\" \"newline\\ncharacter\" \"quote\\\"character\" \"backslash\\\\character\"")
+
+let test_keyword_like_identifiers () =
+  check (list token_testable) "keyword-like identifiers"
+    [ID "ifs"; ID "whiles"; ID "printable"; ID "ifelse"; ID "intx"]
+    (lex_string "ifs whiles printable ifelse intx")
+
+let test_function_declaration () =
+  check (list token_testable) "function declaration"
+    [ID "fibonacci"; LPAREN; ID "n"; COLON; INTTYPE; RPAREN; ARROW; INTTYPE; ASSIGN; LBRACE; RETURN; ID "n"; RBRACE]
+    (lex_string "fibonacci(n: int) -> int := { return n }")
+
+let test_complex_expressions () =
+  check (list token_testable) "complex expressions"
+    [ID "x"; ASSIGN; LPAREN; ID "y"; PLUS; INT 2; RPAREN; MULT; LPAREN; ID "z"; MINUS; INT 3; RPAREN; SEMICOLON]
+    (lex_string "x := (y + 2) * (z - 3);")
+
+let test_edge_case_numbers () =
+  check (list token_testable) "edge case numbers"
+    [INT 0; FLOAT 0.0; FLOAT 0.123; FLOAT 3.0; INT 999999]
+    (lex_string "0 0.0 0.123 3.0 999999")
+
 (* Test suite *)
 let suite =
   [
@@ -78,6 +105,11 @@ let suite =
     "Identifiers", `Quick, test_identifiers;
     "Whitespace and Newlines", `Quick, test_whitespace_and_newlines;
     "Mixed Input", `Quick, test_mixed;
+    "String Escape Sequences", `Quick, test_string_escapes;
+    "Keyword-like Identifiers", `Quick, test_keyword_like_identifiers;
+    "Function Declaration", `Quick, test_function_declaration;
+    "Complex Expressions", `Quick, test_complex_expressions;
+    "Edge Case Numbers", `Quick, test_edge_case_numbers;
   ]
 
 (* Run the tests *)
