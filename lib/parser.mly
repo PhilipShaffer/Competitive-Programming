@@ -28,13 +28,16 @@
 
 (* Tokens for delimiters *)
 %token LPAREN RPAREN LBRACE RBRACE SEMICOLON COLON COMMA
+%token ARROW
+%token RETURN
+%token VOIDTYPE
 %token EOF
 
 (* Precedence and associativity declarations - lower lines have higher precedence *)
 (* These declarations help resolve ambiguities in the grammar *)
 (* For example, in "a + b * c", * has higher precedence than +, so it binds tighter *)
-%nonassoc IN            (* 'in' has lowest precedence *)
-%nonassoc ELSE          (* 'else' has low precedence to handle the dangling else problem *)
+(* NOTE: One shift/reduce conflict may remain due to grammar structure. See Menhir warnings for details. *)
+(* Removed unused precedence for IN and ELSE as they were never useful *)
 %left OR                (* 'or' is left-associative: a or b or c = (a or b) or c *)
 %left AND               (* 'and' is left-associative and has higher precedence than 'or' *)
 %nonassoc LT LEQ GT GEQ EQ NEQ  (* Comparison operators are non-associative *)
@@ -57,6 +60,7 @@ main:
 
 (* Expression rules - define how expressions are parsed *)
 expr:
+  | x = ID; LPAREN; args = arg_list; RPAREN { FunCall(x, args) }  (* Function call: f(a, b, ...) *)
   | x = ID                       { Var x }                 (* Variable reference *)
   | i = INT                      { Int i }                 (* Integer literal *)
   | b = BOOL                     { Bool b }                (* Boolean literal *)
@@ -82,11 +86,13 @@ expr:
 
 (* Statement rules - define how statements are parsed *)
 stmt:
+  | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
+  | RETURN; e = expr { Return e }  (* Return statement *)
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
   | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
   | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)
-  | IF;     e = expr; THEN;   s1 = stmt; ELSE; s2 = stmt  { If (e, s1, s2) }        (* Conditional: if e then s1 else s2 *)
-  | IF;     e = expr; THEN;   s = stmt                    { If (e, s, Block []) }   (* Conditional: if e then s *)
+  | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
+  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE { If (e, Block s, Block []) }  (* Conditional: if e then { ... } *)
   | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)
   | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
   | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
@@ -103,4 +109,21 @@ type_expr:
   | FLOATTYPE  { FloatType }
   | STRINGTYPE { StringType }
   | BOOLTYPE   { BoolType }
+  | VOIDTYPE   { VoidType }
+  ;
+
+param_list:
+  |  { [] }
+  | p = param { [p] }
+  | p = param; COMMA; ps = param_list { p :: ps }
+  ;
+
+param:
+  | x = ID; COLON; t = type_expr { (x, t) }
+  ;
+
+arg_list:
+  |  { [] }
+  | e = expr { [e] }
+  | e = expr; COMMA; es = arg_list { e :: es }
   ;

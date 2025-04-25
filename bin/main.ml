@@ -1,232 +1,109 @@
+open Base
+open Stdio
 open Competitive_programming
+module StdHashtbl = Stdlib.Hashtbl
 
-(* Debug function to print all tokens *)
-let print_tokens s =
-  let lexbuf = Lexing.from_string s in
-  Printf.printf "Tokens:\n";
-  let rec loop () =
-    let token = Lexer.read lexbuf in
-    match token with
-    | Parser.EOF -> Printf.printf "EOF\n"
-    | _ -> 
-        Printf.printf "%s\n" (
-          match token with
-          | Parser.INT n -> Printf.sprintf "INT(%d)" n
-          | Parser.ID s -> Printf.sprintf "ID(%s)" s
-          | Parser.BOOL b -> Printf.sprintf "BOOL(%b)" b
-          | Parser.STRING str -> Printf.sprintf "STRING(%s)" str
-          | Parser.FLOAT f -> Printf.sprintf "FLOAT(%f)" f
-          | Parser.PLUS -> "PLUS"
-          | Parser.MINUS -> "MINUS"
-          | Parser.MULT -> "MULT"
-          | Parser.DIV -> "DIV"
-          | Parser.MOD -> "MOD"
-          | Parser.LT -> "LT"
-          | Parser.LEQ -> "LEQ"
-          | Parser.GT -> "GT"
-          | Parser.GEQ -> "GEQ"
-          | Parser.EQ -> "EQ"
-          | Parser.NEQ -> "NEQ"
-          | Parser.AND -> "AND"
-          | Parser.OR -> "OR"
-          | Parser.NOT -> "NOT"
-          | Parser.IF -> "IF"
-          | Parser.THEN -> "THEN"
-          | Parser.ELSE -> "ELSE"
-          | Parser.PRINT -> "PRINT"
-          | Parser.WHILE -> "WHILE"
-          | Parser.DO -> "DO"
-          | Parser.LET -> "LET"
-          | Parser.IN -> "IN"
-          | Parser.COLON -> "COLON"
-          | Parser.COMMA -> "COMMA"
-          | Parser.ASSIGN -> "ASSIGN"
-          | Parser.LPAREN -> "LPAREN"
-          | Parser.RPAREN -> "RPAREN"
-          | Parser.LBRACE -> "LBRACE"
-          | Parser.RBRACE -> "RBRACE"
-          | Parser.SEMICOLON -> "SEMICOLON"
-          | Parser.INTTYPE -> "INTTYPE"
-          | Parser.FLOATTYPE -> "FLOATTYPE"
-          | Parser.STRINGTYPE -> "STRINGTYPE"
-          | Parser.BOOLTYPE -> "BOOLTYPE"
-          | Parser.EOF -> "EOF"
-        );
-        loop ()
-  in
-  try loop () with _ -> Printf.printf "Error while tokenizing\n"
+(* Include Llvm *) 
+open Llvm
 
-(* Function to read a file *)
-let read_file filename =
-  let channel = open_in filename in
-  let content = really_input_string channel (in_channel_length channel) in
-  close_in channel;
-  content
+(* Assume your parser, lexer, and semantic modules are exposed as follows: *)
+(* val Parser.main : (Lexing.lexbuf -> Parser.token) -> Lexing.lexbuf -> Ast.stmt *)
+(* val Lexer.read : Lexing.lexbuf -> Parser.token *)
+(* val Semant.analyze_stmt : Semant.symbol_table -> Ast.stmt -> Hir.hir_stmt *)
 
-(* Improved structure with modules *)
-module Compiler = struct
-  type target = LLVM_IR | Assembly | Executable
-  
-  type compiler_error = 
-    | ParseError of string
-    | CompileError of string
-    | RuntimeError of string
+(* Minimal pretty-printer for HIR - extend as needed *)
+let rec pp_hir_stmt (stmt : Hir.hir_stmt) : string =
+  match stmt with
+  | Hir.HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
+  | Hir.HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
+  | Hir.HLet (sym, expr, s) -> Printf.sprintf "HLet(%d, %s, %s)" sym (pp_hir_expr expr) (pp_hir_stmt s)
+  | Hir.HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
+  | Hir.HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)
+  | Hir.HPrint expr -> Printf.sprintf "HPrint(%s)" (pp_hir_expr expr)
+  | Hir.HBlock sl -> Printf.sprintf "HBlock([%s])" (String.concat ~sep:"; " (List.map ~f:pp_hir_stmt sl))
+  | Hir.HFunDecl (sym, params, ret, body) ->
+      let params_str = String.concat ~sep:", " (List.map ~f:(fun (s, t) -> Printf.sprintf "%d:%s" s (pp_ty t)) params) in
+      Printf.sprintf "HFunDecl(%d, [%s], %s, %s)" sym params_str (pp_ty ret) (pp_hir_stmt body)
+  | Hir.HReturn expr -> Printf.sprintf "HReturn(%s)" (pp_hir_expr expr)
 
-  (* Parse source code into AST *)
-  let parse (s : string) : (Ast.stmt, compiler_error) result =
-    let lexbuf = Lexing.from_string s in
-    try
-      (* Set position information for error reporting *)
-      let pos = lexbuf.Lexing.lex_curr_p in
-      lexbuf.Lexing.lex_curr_p <- { pos with
-        Lexing.pos_fname = "input";
-        Lexing.pos_lnum = 1;
-      };
-      let ast = Parser.main Lexer.read lexbuf in
-      Ok ast
-    with
-    | Parser.Error ->
-        let pos = Lexing.lexeme_start_p lexbuf in
-        Error (ParseError (Printf.sprintf "Parse error at line %d character %d"
-          pos.Lexing.pos_lnum
-          (pos.Lexing.pos_cnum - pos.Lexing.pos_bol)))
-    | e ->
-        Error (ParseError (Printf.sprintf "Unexpected error: %s" (Printexc.to_string e)))
+and pp_hir_expr (expr : Hir.hir_expr) : string =
+  match expr with
+  | Hir.HVar (sym, ty) -> Printf.sprintf "HVar(%d:%s)" sym (pp_ty ty)
+  | Hir.HInt i -> Printf.sprintf "HInt(%d)" i
+  | Hir.HString s -> Printf.sprintf "HString(\"%s\")" s
+  | Hir.HFloat f -> Printf.sprintf "HFloat(%f)" f
+  | Hir.HBool b -> Printf.sprintf "HBool(%b)" b
+  | Hir.HBinop (op, e1, e2, ty) -> Printf.sprintf "HBinop(%s, %s, %s, %s)" (pp_bop op) (pp_hir_expr e1) (pp_hir_expr e2) (pp_ty ty)
+  | Hir.HUnop (op, e, ty) -> Printf.sprintf "HUnop(%s, %s, %s)" (pp_uop op) (pp_hir_expr e) (pp_ty ty)
+  | Hir.HFunCall (sym, args, ty) ->
+      let args_str = String.concat ~sep:", " (List.map ~f:pp_hir_expr args) in
+      Printf.sprintf "HFunCall(%d, [%s], %s)" sym args_str (pp_ty ty)
 
-  (* Get compiler tool paths from environment or use defaults *)
-  let get_tool_path tool default_path =
-    try Sys.getenv (String.uppercase_ascii tool ^ "_PATH")
-    with Not_found -> default_path
-  
-  let llc_path = get_tool_path "llc" "/opt/homebrew/opt/llvm@18/bin/llc"
-  let clang_path = get_tool_path "clang" "clang"
+and pp_ty (ty : Ast.value_type) : string =
+  match ty with
+  | Ast.IntType -> "int"
+  | Ast.FloatType -> "float"
+  | Ast.StringType -> "string"
+  | Ast.BoolType -> "bool"
+  | Ast.VoidType -> "void"
 
-  (* Error handling for executing shell commands *)
-  let safe_execute cmd =
-    Printf.printf "Executing: %s\n" cmd;
-    match Unix.system cmd with
-    | Unix.WEXITED 0 -> Ok ()
-    | Unix.WEXITED code -> 
-        Error (RuntimeError (Printf.sprintf "Command failed with code %d: %s" code cmd))
-    | Unix.WSIGNALED sig_num -> 
-        Error (RuntimeError (Printf.sprintf "Command killed by signal %d: %s" sig_num cmd))
-    | Unix.WSTOPPED sig_num -> 
-        Error (RuntimeError (Printf.sprintf "Command stopped by signal %d: %s" sig_num cmd))
+and pp_bop (op : Ast.bop) : string =
+  match op with
+  | Ast.Add -> "+"
+  | Ast.Sub -> "-"
+  | Ast.Mult -> "*"
+  | Ast.Div -> "/"
+  | Ast.Mod -> "%"
+  | Ast.Lt -> "<"
+  | Ast.Leq -> "<="
+  | Ast.Gt -> ">"
+  | Ast.Geq -> ">="
+  | Ast.Eq -> "=="
+  | Ast.Neq -> "!="
+  | Ast.And -> "and"
+  | Ast.Or -> "or"
 
-  (* Compile AST to LLVM module *)
-  let compile_ast ast =
-    try
-      let module_val = Codegen.compile ast in
-      Ok module_val
-    with
-    | e -> Error (CompileError (Printf.sprintf "Compilation error: %s" (Printexc.to_string e)))
-
-  (* Compile to different targets *)
-  let rec compile_to target output_name ast =
-    match target with
-    | LLVM_IR -> 
-        (match compile_ast ast with
-         | Ok module_val -> 
-             Printf.printf "LLVM IR generation successful!\n";
-             (* Use module_val to create the output file *)
-             let output_file = output_name ^ ".ll" in
-             let out_str = Llvm.string_of_llmodule module_val in
-             let oc = open_out output_file in
-             output_string oc out_str;
-             close_out oc;
-             Ok output_file
-         | Error e -> Error e)
-    | Assembly ->
-        (match compile_to LLVM_IR output_name ast with
-         | Ok llvm_file -> 
-             (match safe_execute (Printf.sprintf "%s %s -o %s.s" llc_path llvm_file output_name) with
-              | Ok () -> Ok (output_name ^ ".s")
-              | Error e -> Error e)
-         | Error e -> Error e)
-    | Executable ->
-        (match compile_to LLVM_IR output_name ast with
-         | Ok llvm_file -> 
-             (match safe_execute (Printf.sprintf "%s %s -o %s" clang_path llvm_file output_name) with
-              | Ok () -> Ok output_name
-              | Error e -> Error e)
-         | Error e -> Error e)
-
-  (* Run a compiled executable *)
-  let run executable =
-    Printf.printf "Executing: %s\n" executable;
-    match Unix.system (Printf.sprintf "./%s" executable) with
-    | Unix.WEXITED code -> 
-        Printf.printf "Program exited with code: %d\n" code;
-        Ok code
-    | Unix.WSIGNALED sig_num -> 
-        Error (RuntimeError (Printf.sprintf "Program killed by signal %d" sig_num))
-    | Unix.WSTOPPED sig_num -> 
-        Error (RuntimeError (Printf.sprintf "Program stopped by signal %d" sig_num))
-
-  (* Full compilation pipeline from source to running the program *)
-  let compile_and_run ?(show_tokens=false) ?(target=Executable) filename output_name =
-    Printf.printf "Reading program from file: %s\n" filename;
-    let program = read_file filename in
-    Printf.printf "Program contents:\n%s\n" program;
-    
-    if show_tokens then
-      print_tokens program;
-    
-    match parse program with
-    | Error e -> Error e
-    | Ok ast -> 
-        Printf.printf "Parsing successful!\n";
-        match compile_to target output_name ast with
-        | Error e -> Error e
-        | Ok executable ->
-            if target = Executable then
-              match run executable with
-              | Ok _exit_code -> Ok executable
-              | Error e -> Error e
-            else
-              Ok executable
-end
+and pp_uop (op : Ast.uop) : string =
+  match op with
+  | Ast.Neg -> "-"
+  | Ast.Not -> "not"
 
 let () =
-  (* Command line argument parsing *)
-  let filename = ref "" in
-  let output_name = ref "program" in
-  let show_tokens = ref false in
-  let target_type = ref Compiler.Executable in
-  
-  let set_target s =
-    match String.lowercase_ascii s with
-    | "ir" | "llvm" | "llvm-ir" -> target_type := Compiler.LLVM_IR
-    | "asm" | "assembly" -> target_type := Compiler.Assembly
-    | "exe" | "executable" -> target_type := Compiler.Executable
-    | _ -> raise (Arg.Bad "Target must be one of: llvm-ir, assembly, executable")
+  let usage_msg = "Usage: main.exe <source-file>" in
+  let filename =
+    match Sys.get_argv () with
+    | [| _; file |] -> file
+    | _ -> prerr_endline usage_msg; Stdlib.exit 1
   in
-  
-  let spec = [
-    ("-o", Arg.Set_string output_name, " Output file name (default: program)");
-    ("-t", Arg.Bool (fun b -> show_tokens := b), " Show tokens (default: false)");
-    ("-target", Arg.String set_target, " Target type: llvm-ir, assembly, executable (default: executable)");
-  ] in
-  
-  let usage = "Usage: compiler [options] file.src" in
-  
-  Arg.parse spec (fun s -> filename := s) usage;
-  
-  if !filename = "" then begin
-    Printf.eprintf "Error: No input file specified\n";
-    Arg.usage spec usage;
-    exit 1
-  end;
-  
-  (* Run the compiler with the specified options *)
-  match Compiler.compile_and_run ~show_tokens:!show_tokens ~target:!target_type !filename !output_name with
-  | Ok output -> Printf.printf "Compilation successful! Output: %s\n" output
-  | Error (Compiler.ParseError msg) -> 
-      Printf.eprintf "Parse error: %s\n" msg;
-      exit 1
-  | Error (Compiler.CompileError msg) -> 
-      Printf.eprintf "Compilation error: %s\n" msg;
-      exit 1
-  | Error (Compiler.RuntimeError msg) -> 
-      Printf.eprintf "Runtime error: %s\n" msg;
-      exit 1
+  let source = In_channel.read_all filename in
+  let lexbuf = Lexing.from_string source in
+  try
+    let ast = Parser.main Lexer.read lexbuf in
+    let hir = Semant.analyze_stmt [StdHashtbl.create 32] ast in
+    Stdlib.print_endline "HIR generated successfully!";
+    Stdlib.print_endline (pp_hir_stmt hir);
+
+    (* Generate LLVM IR *) 
+    Stdlib.print_endline "\nGenerating LLVM IR...";
+    let llvm_module = Codegen.codegen_hir hir in
+
+    (* Print LLVM IR to file *) 
+    let output_filename = "output.ll" in
+    Stdlib.print_endline ("\nWriting LLVM IR to " ^ output_filename ^ "...");
+    let () = print_module output_filename llvm_module in
+    Stdlib.print_endline "LLVM IR written successfully.";
+
+    (* Re-enable Module verification *) 
+    (match Llvm_analysis.verify_module llvm_module with
+     | None -> Stdlib.print_endline "\nLLVM module verified successfully."
+     | Some err -> Stdlib.print_endline ("\nLLVM module verification failed: " ^ err));
+
+  with
+  | Semant.Semantic_error msg ->
+      prerr_endline ("Semantic error: " ^ msg); Stdlib.exit 2
+  | Parser.Error ->
+      prerr_endline "Parse error!"; Stdlib.exit 3
+  | Failure msg when String.is_prefix msg ~prefix:"Codegen not implemented" ->
+      prerr_endline ("Codegen Error: " ^ msg); Stdlib.exit 5 (* Specific exit code for codegen errors *)
+  | Failure msg ->
+      prerr_endline ("Failure: " ^ msg); Stdlib.exit 4

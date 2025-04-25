@@ -1,0 +1,140 @@
+(* Semantic analysis for the strict While language *)
+
+open Ast
+open Hir
+
+exception Semantic_error of string
+
+(* Symbol table entry *)
+type symbol_info =
+  | SymVar of value_type
+  | SymFun of (value_type list) * value_type
+
+(* Symbol table with scope stack *)
+type symbol_table = (string, symbol_info) Hashtbl.t list
+
+(* Generate fresh unique symbol IDs *)
+let symbol_counter = ref 0
+let fresh_symbol () =
+  let id = !symbol_counter in
+  incr symbol_counter; id
+
+(* Helper: get symbol ID for a name (assumes unique for now) *)
+let sym_table_ids = Hashtbl.create 256
+let sym_of_name name =
+  try Hashtbl.find sym_table_ids name with Not_found -> let sid = fresh_symbol () in Hashtbl.add sym_table_ids name sid; sid
+
+(* Lookup symbol in the stack of scopes *)
+let rec lookup_symbol tbls name =
+  match tbls with
+  | [] -> None
+  | tbl :: rest -> (try Some (Hashtbl.find tbl name) with Not_found -> lookup_symbol rest name)
+
+(* Enter a new scope *)
+let push_scope tbls = (Hashtbl.create 16) :: tbls
+let pop_scope tbls = match tbls with | _ :: rest -> rest | [] -> []
+let add_symbol tbls name info = match tbls with | tbl :: _ -> Hashtbl.add tbl name info | [] -> failwith "No scope to add symbol"
+
+(* Main entry for semantic analysis: from AST to HIR *)
+let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
+  match stmt with
+  | Assign (x, e) ->
+      let sym = match lookup_symbol tbls x with Some (SymVar _) -> sym_of_name x | _ -> raise (Semantic_error ("Undeclared variable: " ^ x)) in
+      let he, t = analyze_expr tbls e in
+      (* Strict typing: must match exactly *)
+      (match lookup_symbol tbls x with Some (SymVar t') when t = t' -> () | _ -> raise (Semantic_error ("Type mismatch in assignment to: " ^ x)));
+      HAssign (sym, he)
+  | Declare (x, t, e) ->
+      let sym = fresh_symbol () in
+      Hashtbl.replace sym_table_ids x sym;
+      let he, et = analyze_expr tbls e in
+      if t <> et then raise (Semantic_error ("Type mismatch in declaration of: " ^ x));
+      add_symbol tbls x (SymVar t);
+      HDeclare (sym, t, he)
+  | Let (x, e, s) ->
+      let sym = fresh_symbol () in
+      let he, t = analyze_expr tbls e in
+      let tbls' = push_scope tbls in
+      add_symbol tbls' x (SymVar t);
+      let hs = analyze_stmt tbls' s in
+      HLet (sym, he, hs)
+  | If (cond, st, sf) ->
+      let hc, t = analyze_expr tbls cond in
+      if t <> BoolType then raise (Semantic_error "Condition must be bool");
+      let hst = analyze_stmt (push_scope tbls) st in
+      let hsf = analyze_stmt (push_scope tbls) sf in
+      HIf (hc, hst, hsf)
+  | While (cond, body) ->
+      let hc, t = analyze_expr tbls cond in
+      if t <> BoolType then raise (Semantic_error "While condition must be bool");
+      let hbody = analyze_stmt (push_scope tbls) body in
+      HWhile (hc, hbody)
+  | Print e ->
+      let he, _ = analyze_expr tbls e in
+      HPrint he
+  | Block sl ->
+      let tbls' = push_scope tbls in
+      (* First pass: add all function signatures to the symbol table *)
+      List.iter (function
+        | FunDecl (name, params, ret_type, _) ->
+            add_symbol tbls' name (SymFun (List.map snd params, ret_type))
+        | _ -> ()) sl;
+      (* Second pass: analyze all statements *)
+      HBlock (List.map (analyze_stmt tbls') sl)
+  | FunDecl (name, params, ret_type, body) ->
+      let sym = fresh_symbol () in
+      Hashtbl.replace sym_table_ids name sym;
+      let param_syms = List.map (fun (n, t) ->
+        let sid = fresh_symbol () in
+        Hashtbl.replace sym_table_ids n sid;
+        (sid, t)
+      ) params in
+      let tbls' = push_scope tbls in
+      List.iter2 (fun (n, t) (_sid, _) -> add_symbol tbls' n (SymVar t)) params param_syms;
+      add_symbol tbls' name (SymFun (List.map snd params, ret_type));
+      let hbody = analyze_stmt tbls' body in
+      HFunDecl (sym, param_syms, ret_type, hbody)
+  | Return e ->
+      let he, _ = analyze_expr tbls e in
+      HReturn he
+
+and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_type =
+  match expr with
+  | Var x ->
+      (match lookup_symbol tbls x with
+      | Some (SymVar t) -> (HVar (sym_of_name x, t), t)
+      | _ -> raise (Semantic_error ("Undeclared variable: " ^ x)))
+  | Int i -> (HInt i, IntType)
+  | String s -> (HString s, StringType)
+  | Float f -> (HFloat f, FloatType)
+  | Bool b -> (HBool b, BoolType)
+  | Binop (op, e1, e2) ->
+      let h1, t1 = analyze_expr tbls e1 in
+      let h2, t2 = analyze_expr tbls e2 in
+      if t1 <> t2 then raise (Semantic_error "Operands must have the same type");
+      (match op, t1 with
+      | (Add | Sub | Mult | Div | Mod), IntType -> (HBinop (op, h1, h2, IntType), IntType)
+      | (Add | Sub | Mult | Div | Mod), FloatType -> (HBinop (op, h1, h2, FloatType), FloatType)
+      | (Lt | Leq | Gt | Geq), IntType | (Lt | Leq | Gt | Geq), FloatType -> (HBinop (op, h1, h2, BoolType), BoolType)
+      | (Eq | Neq), t when t = IntType || t = FloatType || t = BoolType || t = StringType -> (HBinop (op, h1, h2, BoolType), BoolType)
+      | (And | Or), BoolType -> (HBinop (op, h1, h2, BoolType), BoolType)
+      | _ -> raise (Semantic_error "Invalid operands for operator"))
+  | Unop (op, e) ->
+      let he, t = analyze_expr tbls e in
+      (match op, t with
+      | Neg, IntType -> (HUnop (Neg, he, IntType), IntType)
+      | Neg, FloatType -> (HUnop (Neg, he, FloatType), FloatType)
+      | Not, BoolType -> (HUnop (Not, he, BoolType), BoolType)
+      | _ -> raise (Semantic_error "Invalid operand for unary operator"))
+  | FunCall (fname, args) ->
+      (match lookup_symbol tbls fname with
+      | Some (SymFun (param_types, ret_type)) ->
+          if List.length param_types <> List.length args then raise (Semantic_error ("Arity mismatch in call to: " ^ fname));
+          let hargs = List.map2 (fun a t -> let ha, at = analyze_expr tbls a in if at <> t then raise (Semantic_error "Argument type mismatch"); ha) args param_types in
+          (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
+      | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
+
+(* Helper: get symbol ID for a name (assumes unique for now) *)
+let sym_table_ids : (string, int) Hashtbl.t = Hashtbl.create 256
+let sym_of_name name =
+  try Hashtbl.find sym_table_ids name with Not_found -> let sid = fresh_symbol () in Hashtbl.add sym_table_ids name sid; sid
