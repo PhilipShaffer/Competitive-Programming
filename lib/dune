@@ -1,5 +1,6 @@
 (library
- (name competitive_programming)
+ (name libraries)
+ (public_name Competitive_Programming.libraries)
  (libraries base stdio menhirLib llvm llvm.analysis)
  (modules ast hir lexer parser semant codegen)
  (preprocess (pps ppx_jane)))

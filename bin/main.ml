@@ -1,6 +1,6 @@
 open Base
 open Stdio
-open Competitive_programming
+open Libraries
 module StdHashtbl = Stdlib.Hashtbl
 
 (* Include Llvm *) 

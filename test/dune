@@ -1,2 +1,5 @@
 (test
- (name test_Competitive_Programming))
+ (name test_lexer)
+ (libraries
+  Competitive_Programming.libraries
+  alcotest))
