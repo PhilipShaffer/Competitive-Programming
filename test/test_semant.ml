@@ -160,7 +160,7 @@ let test_functions () =
     true
     (analyze_error 
       "add(a: int, b: int) -> int := { return a + b }; print add(1)" 
-      "` mismatch");
+      "Arity mismatch");
       
   (* Function call with wrong argument types *)
   check bool "function call wrong arg types"
