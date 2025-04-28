@@ -30,10 +30,27 @@ let rec lookup_symbol tbls name =
   | [] -> None
   | tbl :: rest -> (try Some (Hashtbl.find tbl name) with Not_found -> lookup_symbol rest name)
 
+(* Check if a symbol exists in the current scope (top of stack) *)
+let lookup_in_current_scope tbl name =
+  match tbl with
+  | [] -> None
+  | current :: _ -> (try Some (Hashtbl.find current name) with Not_found -> None)
+
 (* Enter a new scope *)
 let push_scope tbls = (Hashtbl.create 16) :: tbls
+
+(* Exit a scope *)
 let pop_scope tbls = match tbls with | _ :: rest -> rest | [] -> []
-let add_symbol tbls name info = match tbls with | tbl :: _ -> Hashtbl.add tbl name info | [] -> failwith "No scope to add symbol"
+
+(* Add a symbol to the current scope, fail if it already exists in this scope *)
+let add_symbol tbls name info =
+  match tbls with
+  | tbl :: _ ->
+      if Hashtbl.mem tbl name then
+        raise (Semantic_error ("Symbol already defined in this scope: " ^ name))
+      else
+        Hashtbl.add tbl name info
+  | [] -> failwith "No scope to add symbol"
 
 (* Main entry for semantic analysis: from AST to HIR *)
 let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
@@ -77,10 +94,14 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       (* First pass: add all function signatures to the symbol table *)
       List.iter (function
         | FunDecl (name, params, ret_type, _) ->
-            add_symbol tbls' name (SymFun (List.map snd params, ret_type))
+            if lookup_in_current_scope tbls' name <> None then
+              raise (Semantic_error ("Function already defined in this scope: " ^ name))
+            else
+              add_symbol tbls' name (SymFun (List.map snd params, ret_type))
         | _ -> ()) sl;
       (* Second pass: analyze all statements *)
-      HBlock (List.map (analyze_stmt tbls') sl)
+      let hir_stmts = List.map (analyze_stmt tbls') sl in
+      HBlock hir_stmts
   | FunDecl (name, params, ret_type, body) ->
       let sym = fresh_symbol () in
       Hashtbl.replace sym_table_ids name sym;
@@ -90,7 +111,13 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
         (sid, t)
       ) params in
       let tbls' = push_scope tbls in
-      List.iter2 (fun (n, t) (_sid, _) -> add_symbol tbls' n (SymVar t)) params param_syms;
+      List.iter2 (fun (n, t) (_sid, _) -> 
+        (* Check for duplicate parameter names *)
+        if lookup_in_current_scope tbls' n <> None then
+          raise (Semantic_error ("Duplicate parameter name in function " ^ name ^ ": " ^ n))
+        else
+          add_symbol tbls' n (SymVar t)
+      ) params param_syms;
       add_symbol tbls' name (SymFun (List.map snd params, ret_type));
       let hbody = analyze_stmt tbls' body in
       HFunDecl (sym, param_syms, ret_type, hbody)
@@ -130,11 +157,10 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
       (match lookup_symbol tbls fname with
       | Some (SymFun (param_types, ret_type)) ->
           if List.length param_types <> List.length args then raise (Semantic_error ("Arity mismatch in call to: " ^ fname));
-          let hargs = List.map2 (fun a t -> let ha, at = analyze_expr tbls a in if at <> t then raise (Semantic_error "Argument type mismatch"); ha) args param_types in
+          let hargs = List.map2 (fun a t -> 
+            let ha, at = analyze_expr tbls a in 
+            if at <> t then raise (Semantic_error ("Argument type mismatch in call to " ^ fname)); 
+            ha
+          ) args param_types in
           (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
       | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
-
-(* Helper: get symbol ID for a name (assumes unique for now) *)
-let sym_table_ids : (string, int) Hashtbl.t = Hashtbl.create 256
-let sym_of_name name =
-  try Hashtbl.find sym_table_ids name with Not_found -> let sid = fresh_symbol () in Hashtbl.add sym_table_ids name sid; sid
