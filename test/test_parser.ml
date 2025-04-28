@@ -269,6 +269,35 @@ let test_function_statements () =
     (match parse_string "max(a: int, b: int) -> int := { if a > b then { return a } else { return b } }" 
      with Block [s] -> s | _ -> failwith "Unexpected AST")
 
+let test_nested_functions () =
+  check stmt_testable "nested function declaration"
+    (FunDecl ("outer", [("x", IntType)], IntType,
+              Block [
+                FunDecl ("inner", [("y", IntType)], IntType, 
+                        Block [
+                          Return (Binop (Add, Var "x", Var "y"))
+                        ]);
+                Return (FunCall ("inner", [Int 5]))
+              ]))
+    (match parse_string "outer(x: int) -> int := { inner(y: int) -> int := { return x + y }; return inner(5) }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST");
+     
+  check stmt_testable "nested recursive function"
+    (FunDecl ("factorial", [("n", IntType)], IntType,
+              Block [
+                FunDecl ("fact_tail", [("n", IntType); ("acc", IntType)], IntType,
+                        Block [
+                          If (Binop (Eq, Var "n", Int 0),
+                             Block [Return (Var "acc")],
+                             Block [Return (FunCall ("fact_tail", 
+                                                    [Binop (Sub, Var "n", Int 1); 
+                                                     Binop (Mult, Var "n", Var "acc")]))])
+                        ]);
+                Return (FunCall ("fact_tail", [Var "n"; Int 1]))
+              ]))
+    (match parse_string "factorial(n: int) -> int := { fact_tail(n: int, acc: int) -> int := { if n = 0 then { return acc } else { return fact_tail(n - 1, n * acc) } }; return fact_tail(n, 1) }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST")
+
 let test_complex_statements () =
   check stmt_testable "nested blocks"
     (Block [
@@ -289,7 +318,19 @@ let test_complex_statements () =
                Assign ("x", Binop (Sub, Var "x", Int 1))
              ])
     ])
-    (parse_string "x: int := 10; while x > 0 do { print x; x := x - 1 }")
+    (parse_string "x: int := 10; while x > 0 do { print x; x := x - 1 }");
+    
+  (* Test for block-level variable scoping *)
+  check stmt_testable "block scoping"
+    (Block [
+      Block [
+        Declare ("y", IntType, Int 5);
+        Print (Var "y")
+      ];
+      (* Attempting to use y outside its scope *)
+      Print (Var "y")
+    ])
+    (parse_string "{ y: int := 5; print y }; print y")
 
 (* Test for operator precedence *)
 let test_operator_precedence () =
@@ -348,6 +389,7 @@ let suite =
     "Assignment Statements", `Quick, test_assignment_statements;
     "Control Flow Statements", `Quick, test_control_flow_statements;
     "Function Statements", `Quick, test_function_statements;
+    "Nested Functions", `Quick, test_nested_functions;
     "Complex Statements", `Quick, test_complex_statements;
     "Operator Precedence", `Quick, test_operator_precedence;
     "Complete Programs", `Quick, test_complete_programs;
