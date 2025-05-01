@@ -7,6 +7,7 @@ type value_type =
   | StringType
   | BoolType
   | VoidType
+  | ArrayType of value_type  (* Array type with element type *)
 
 (* Unary operators - operations that take a single operand *)
 type uop =
@@ -39,6 +40,10 @@ type expr =
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
  | FunCall of string * expr list  (* Function call: f(a, b, ...) *)
+ | ArrayLit of expr list     (* Array literal: [1, 2, 3] *)
+ | ArrayGet of expr * expr   (* Array access: arr[idx] *)
+ | ArraySet of expr * expr * expr (* Array assignment: arr[idx] = value *)
+ | ArrayLen of expr          (* Array length: len(arr) *)
 
 (* Statements - represent actions or commands *)
 type stmt =

@@ -33,6 +33,10 @@
 %token VOIDTYPE
 %token EOF
 
+(* Array-related tokens *)
+%token LBRACKET RBRACKET
+%token LEN
+
 (* Precedence and associativity declarations - lower lines have higher precedence *)
 (* These declarations help resolve ambiguities in the grammar *)
 (* For example, in "a + b * c", * has higher precedence than +, so it binds tighter *)
@@ -66,6 +70,10 @@ expr:
   | b = BOOL                     { Bool b }                (* Boolean literal *)
   | str = STRING                 { String str }
   | f = FLOAT                    { Float f }
+  | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }  (* Array literal *)
+  | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }  (* Array access *)
+  | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArraySet(arr, idx, value) }  (* Array assignment *)
+  | LEN; LPAREN; arr = expr; RPAREN { ArrayLen arr }  (* Array length *)
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
   | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
@@ -110,6 +118,7 @@ type_expr:
   | STRINGTYPE { StringType }
   | BOOLTYPE   { BoolType }
   | VOIDTYPE   { VoidType }
+  | t = type_expr; LBRACKET; RBRACKET { ArrayType t }
   ;
 
 param_list:
