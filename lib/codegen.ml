@@ -29,13 +29,17 @@ let rec lookup_var (tables : symbol_tables) (sym : int) : llvalue =
     | None -> lookup_var parent_scopes sym
 
 (* Type mapping *) 
-let llvm_type_of (ty : value_type) : lltype =
+let rec llvm_type_of (ty : value_type) : lltype =
   match ty with
   | IntType -> i64_type context (* Using 64-bit integers *)
   | FloatType -> double_type context
   | StringType -> pointer_type context (* char* *)
   | BoolType -> i1_type context
   | VoidType -> void_type context
+  | ArrayType elem_ty ->
+      let elem_llvm_ty = llvm_type_of elem_ty in
+      let ctx = type_context elem_llvm_ty in
+      pointer_type ctx
 
 (* Forward declarations for mutual recursion *) 
 let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
@@ -56,6 +60,50 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
   | HFloat f -> const_float (double_type context) f
   | HString s -> build_global_stringptr s "str_tmp" builder
   | HBool b -> const_int (i1_type context) (if b then 1 else 0)
+  | HArrayLit (elems, elem_ty) ->
+      let elem_llvm_ty = llvm_type_of elem_ty in
+      let length = List.length elems in
+      
+      (* Allocate array data *)
+      let array_ty = array_type elem_llvm_ty length in
+      let array_val = build_alloca array_ty "array_tmp" builder in
+      
+      (* Store elements *)
+      List.iteri elems ~f:(fun i elem ->
+          let elem_val = codegen_expr tables elem in
+          let elem_ptr = build_gep array_ty array_val [| const_int (i64_type context) 0; const_int (i64_type context) i |] "elem_ptr" builder in
+          ignore (build_store elem_val elem_ptr builder)
+      );
+      
+      (* Convert array to pointer *)
+      let ctx = type_context elem_llvm_ty in
+      build_bitcast array_val (pointer_type ctx) "array_ptr" builder
+      
+  | HArrayGet (arr, idx, ty) ->
+      let arr_val = codegen_expr tables arr in
+      let idx_val = codegen_expr tables idx in
+      let elem_ty = llvm_type_of ty in
+      
+      (* Get element pointer and load *)
+      let elem_ptr = build_gep elem_ty arr_val [| idx_val |] "elem_ptr" builder in
+      build_load elem_ty elem_ptr "elem_load" builder
+      
+  | HArraySet (arr, idx, value) ->
+      let arr_val = codegen_expr tables arr in
+      let idx_val = codegen_expr tables idx in
+      let value_val = codegen_expr tables value in
+      let elem_ty = type_of value_val in
+      
+      (* Store element *)
+      let elem_ptr = build_gep elem_ty arr_val [| idx_val |] "elem_ptr" builder in
+      ignore (build_store value_val elem_ptr builder);
+      const_null (void_type context)
+      
+  | HArrayLen arr ->
+      let arr_val = codegen_expr tables arr in
+      let array_ty = type_of arr_val in
+      let length = array_length array_ty in
+      const_int (i64_type context) length
 
   | HBinop (op, e1, e2, _ty) ->
       let lhs = codegen_expr tables e1 in
@@ -137,7 +185,13 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
           | At_end _ -> builder_at_end context entry_bb
           | Before first_instr -> builder_before context first_instr
       in
-      let llvm_ty = llvm_type_of ty in
+      let llvm_ty = match ty with
+        | ArrayType elem_ty -> 
+            let elem_llvm_ty = llvm_type_of elem_ty in
+            let ctx = type_context elem_llvm_ty in
+            pointer_type ctx
+        | _ -> llvm_type_of ty
+      in
       let ptr = build_alloca llvm_ty ("var_" ^ Int.to_string sym) entry_builder in
       let init_val = codegen_expr tables expr in
       ignore (build_store init_val ptr builder);
@@ -260,7 +314,9 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
             | StringType -> 
                 let string_ptr_type = pointer_type context in
                 ignore(build_ret (const_null string_ptr_type) builder)
-           )
+            | ArrayType _ ->
+                let array_ptr_type = pointer_type context in
+                ignore(build_ret (const_null array_ptr_type) builder))
        | Some _ -> ()); (* Block already terminated *) 
 
       (* Verify the generated function *) 
@@ -295,7 +351,9 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
             (* Print bool as 0 or 1 (integer) *) 
             fmt, [| fmt; value_to_print |]
         | VoidType -> 
-            failwith "Cannot print void type" 
+            failwith "Cannot print void type"
+        | ArrayType _ ->
+            failwith "Cannot print array type directly"
       in
       ignore (build_call printf_ty printf_func print_args "printf_call" builder);
       None (* Print doesn't return a value *) 

@@ -8,7 +8,11 @@ let token_to_string = function
   | WHILE -> "WHILE" | DO -> "DO" | IN -> "IN" | AND -> "AND" | OR -> "OR"
   | NOT -> "NOT" | RETURN -> "RETURN" | ARROW -> "ARROW" | COMMA -> "COMMA"
   | VOIDTYPE -> "VOIDTYPE" | INTTYPE -> "INTTYPE" | FLOATTYPE -> "FLOATTYPE"
-  | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE"
+  | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE" | ASSIGN -> "ASSIGN"
+  | LPAREN -> "LPAREN" | RPAREN -> "RPAREN" | LBRACE -> "LBRACE" | RBRACE -> "RBRACE"
+  | SEMICOLON -> "SEMICOLON" | COLON -> "COLON" | EOF -> "EOF"
+  | LET -> "LET"
+  | LBRACKET -> "LBRACKET" | RBRACKET -> "RBRACKET" | LEN -> "LEN"
   | ID s -> Printf.sprintf "ID(%s)" s
   | INT i -> Printf.sprintf "INT(%d)" i
   | STRING s -> Printf.sprintf "STRING(%s)" s
@@ -16,11 +20,6 @@ let token_to_string = function
   | BOOL b -> Printf.sprintf "BOOL(%b)" b
   | PLUS -> "PLUS" | MINUS -> "MINUS" | MULT -> "MULT" | DIV -> "DIV" | MOD -> "MOD"
   | LT -> "LT" | LEQ -> "LEQ" | GT -> "GT" | GEQ -> "GEQ" | EQ -> "EQ" | NEQ -> "NEQ"
-  | ASSIGN -> "ASSIGN" | LPAREN -> "LPAREN" | RPAREN -> "RPAREN"
-  | LBRACE -> "LBRACE" | RBRACE -> "RBRACE" | SEMICOLON -> "SEMICOLON"
-  | COLON -> "COLON" | EOF -> "EOF"
-  (* Add cases for LET if it's in your tokens, based on parser.mly *)
-  | LET -> "LET" (* Assuming LET is a token *)
 
 (* Helper function to lex a string and return a list of tokens *)
 let lex_string s =

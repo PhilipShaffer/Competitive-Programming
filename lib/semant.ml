@@ -108,6 +108,34 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
   | String s -> (HString s, StringType)
   | Float f -> (HFloat f, FloatType)
   | Bool b -> (HBool b, BoolType)
+  | ArrayLit elems ->
+      if List.length elems = 0 then raise (Semantic_error "Empty array literals are not allowed");
+      let helems, types = List.split (List.map (analyze_expr tbls) elems) in
+      let elem_type = List.hd types in
+      if not (List.for_all (fun t -> t = elem_type) types) then
+        raise (Semantic_error "All array elements must have the same type");
+      (HArrayLit (helems, elem_type), ArrayType elem_type)
+  | ArrayGet (arr, idx) ->
+      let harr, arr_type = analyze_expr tbls arr in
+      let hidx, idx_type = analyze_expr tbls idx in
+      if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
+      (match arr_type with
+      | ArrayType elem_type -> (HArrayGet (harr, hidx, elem_type), elem_type)
+      | _ -> raise (Semantic_error "Cannot index non-array type"))
+  | ArraySet (arr, idx, value) ->
+      let harr, arr_type = analyze_expr tbls arr in
+      let hidx, idx_type = analyze_expr tbls idx in
+      let hval, val_type = analyze_expr tbls value in
+      if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
+      (match arr_type with
+      | ArrayType elem_type when elem_type = val_type -> (HArraySet (harr, hidx, hval), VoidType)
+      | ArrayType _ -> raise (Semantic_error "Type mismatch in array assignment")
+      | _ -> raise (Semantic_error "Cannot index non-array type"))
+  | ArrayLen arr ->
+      let harr, arr_type = analyze_expr tbls arr in
+      (match arr_type with
+      | ArrayType _ -> (HArrayLen harr, IntType)
+      | _ -> raise (Semantic_error "Cannot get length of non-array type"))
   | Binop (op, e1, e2) ->
       let h1, t1 = analyze_expr tbls e1 in
       let h2, t2 = analyze_expr tbls e2 in
@@ -129,8 +157,11 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
   | FunCall (fname, args) ->
       (match lookup_symbol tbls fname with
       | Some (SymFun (param_types, ret_type)) ->
-          if List.length param_types <> List.length args then raise (Semantic_error ("Arity mismatch in call to: " ^ fname));
-          let hargs = List.map2 (fun a t -> let ha, at = analyze_expr tbls a in if at <> t then raise (Semantic_error "Argument type mismatch"); ha) args param_types in
+          if List.length args <> List.length param_types then
+            raise (Semantic_error ("Wrong number of arguments for function: " ^ fname));
+          let hargs, arg_types = List.split (List.map (analyze_expr tbls) args) in
+          if not (List.for_all2 (fun t1 t2 -> t1 = t2) arg_types param_types) then
+            raise (Semantic_error ("Type mismatch in function call: " ^ fname));
           (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
       | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
 

@@ -16,6 +16,10 @@ type hir_expr =
   | HBinop of bop * hir_expr * hir_expr * value_type
   | HUnop of uop * hir_expr * value_type
   | HFunCall of hir_symbol * hir_expr list * value_type
+  | HArrayLit of hir_expr list * value_type  (** Array literal with element type *)
+  | HArrayGet of hir_expr * hir_expr * value_type  (** Array access with element type *)
+  | HArraySet of hir_expr * hir_expr * hir_expr  (** Array assignment *)
+  | HArrayLen of hir_expr  (** Array length *)
 
 (** HIR statements *)
 and hir_stmt =
