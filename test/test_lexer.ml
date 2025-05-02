@@ -5,10 +5,13 @@ open Parser (* Need this for token types *)
 (* Add this function definition before the test cases *)
 let token_to_string = function
   | IF -> "IF" | THEN -> "THEN" | ELSE -> "ELSE" | PRINT -> "PRINT"
-  | WHILE -> "WHILE" | DO -> "DO" | IN -> "IN" | AND -> "AND" | OR -> "OR"
+  | WHILE -> "WHILE" | DO -> "DO" | AND -> "AND" | OR -> "OR"
   | NOT -> "NOT" | RETURN -> "RETURN" | ARROW -> "ARROW" | COMMA -> "COMMA"
   | VOIDTYPE -> "VOIDTYPE" | INTTYPE -> "INTTYPE" | FLOATTYPE -> "FLOATTYPE"
-  | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE"
+  | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE" | ASSIGN -> "ASSIGN"
+  | LPAREN -> "LPAREN" | RPAREN -> "RPAREN" | LBRACE -> "LBRACE" | RBRACE -> "RBRACE"
+  | SEMICOLON -> "SEMICOLON" | COLON -> "COLON" | EOF -> "EOF"
+  | LBRACKET -> "LBRACKET" | RBRACKET -> "RBRACKET" | LEN -> "LEN"
   | ID s -> Printf.sprintf "ID(%s)" s
   | INT i -> Printf.sprintf "INT(%d)" i
   | STRING s -> Printf.sprintf "STRING(%s)" s
@@ -16,11 +19,6 @@ let token_to_string = function
   | BOOL b -> Printf.sprintf "BOOL(%b)" b
   | PLUS -> "PLUS" | MINUS -> "MINUS" | MULT -> "MULT" | DIV -> "DIV" | MOD -> "MOD"
   | LT -> "LT" | LEQ -> "LEQ" | GT -> "GT" | GEQ -> "GEQ" | EQ -> "EQ" | NEQ -> "NEQ"
-  | ASSIGN -> "ASSIGN" | LPAREN -> "LPAREN" | RPAREN -> "RPAREN"
-  | LBRACE -> "LBRACE" | RBRACE -> "RBRACE" | SEMICOLON -> "SEMICOLON"
-  | COLON -> "COLON" | EOF -> "EOF"
-  (* Add cases for LET if it's in your tokens, based on parser.mly *)
-  | LET -> "LET" (* Assuming LET is a token *)
 
 (* Helper function to lex a string and return a list of tokens *)
 let lex_string s =
@@ -39,7 +37,7 @@ let token_testable =
 (* Test cases *)
 let test_keywords () =
   check (list token_testable) "keywords"
-    [IF; THEN; ELSE; PRINT; WHILE; DO; IN; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
+    [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
     (lex_string "if then else print while do in and or not return void int float string bool")
 
 let test_operators () =

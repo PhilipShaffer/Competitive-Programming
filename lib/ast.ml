@@ -7,6 +7,7 @@ type value_type =
   | StringType
   | BoolType
   | VoidType
+  | ArrayType of value_type  (* Array type with element type *)
 
 (* Unary operators - operations that take a single operand *)
 type uop =
@@ -39,12 +40,15 @@ type expr =
  | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
  | FunCall of string * expr list  (* Function call: f(a, b, ...) *)
+ | ArrayLit of expr list     (* Array literal: [1, 2, 3] *)
+ | ArrayGet of expr * expr   (* Array access: arr[idx] *)
+ | ArrayLen of expr          (* Array length: len(arr) *)
 
 (* Statements - represent actions or commands *)
 type stmt =
  | Assign of string * expr   (* Assignment: x = expr *)
+ | ArrayAssign of expr * expr * expr  (* Array assignment: arr[idx] = value *)
  | Declare of string * value_type * expr (* Type declaration *)
- | Let of string * expr * stmt (* Let binding: let x = expr in stmt *)
  | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
