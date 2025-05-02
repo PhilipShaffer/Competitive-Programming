@@ -15,8 +15,8 @@ open Llvm
 let rec pp_hir_stmt (stmt : Hir.hir_stmt) : string =
   match stmt with
   | Hir.HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
+  | Hir.HArrayAssign (arr, idx, value) -> Printf.sprintf "HArrayAssign(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | Hir.HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
-  | Hir.HLet (sym, expr, s) -> Printf.sprintf "HLet(%d, %s, %s)" sym (pp_hir_expr expr) (pp_hir_stmt s)
   | Hir.HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
   | Hir.HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)
   | Hir.HPrint expr -> Printf.sprintf "HPrint(%s)" (pp_hir_expr expr)
@@ -38,6 +38,13 @@ and pp_hir_expr (expr : Hir.hir_expr) : string =
   | Hir.HFunCall (sym, args, ty) ->
       let args_str = String.concat ~sep:", " (List.map ~f:pp_hir_expr args) in
       Printf.sprintf "HFunCall(%d, [%s], %s)" sym args_str (pp_ty ty)
+  | Hir.HArrayLit (elems, ty) ->
+      let elems_str = String.concat ~sep:", " (List.map ~f:pp_hir_expr elems) in
+      Printf.sprintf "HArrayLit([%s], %s)" elems_str (pp_ty ty)
+  | Hir.HArrayGet (arr, idx, ty) ->
+      Printf.sprintf "HArrayGet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty)
+  | Hir.HArrayLen arr ->
+      Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
 
 and pp_ty (ty : Ast.value_type) : string =
   match ty with
@@ -46,6 +53,7 @@ and pp_ty (ty : Ast.value_type) : string =
   | Ast.StringType -> "string"
   | Ast.BoolType -> "bool"
   | Ast.VoidType -> "void"
+  | Ast.ArrayType elem_ty -> Printf.sprintf "%s[]" (pp_ty elem_ty)
 
 and pp_bop (op : Ast.bop) : string =
   match op with
