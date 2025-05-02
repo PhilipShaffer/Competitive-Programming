@@ -1,1 +1,8 @@
 _build
+*.ll
+program
+program.s
+output.exe
+output.ll
+output.s
+CLAUDE.md
