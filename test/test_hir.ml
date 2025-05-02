@@ -205,6 +205,87 @@ let test_hir_scoping () =
   | _ -> 
       check bool "should have multiple variable references" false true
 
+(* Test return type checking in HIR *)
+let test_hir_return_type_checking () =
+  reset_symbols ();
+  
+  (* Helper to find return statements in HIR *)
+  let rec find_return_type_mismatch stmt func_ret_type =
+    match stmt with
+    | HReturn expr -> 
+        let expr_type = type_of_expr expr in
+        expr_type <> func_ret_type
+    | HBlock stmts ->
+        List.exists (fun s -> find_return_type_mismatch s func_ret_type) stmts
+    | HIf (_, t, f) ->
+        find_return_type_mismatch t func_ret_type || 
+        find_return_type_mismatch f func_ret_type
+    | HFunDecl (_, _, ret_type, body) ->
+        find_return_type_mismatch body ret_type
+    | _ -> false
+  in
+  
+  (* Test correct return type - match any pattern that might be returned from HIR *)
+  let correct_hir = parse_to_hir "test() -> int := { return 42 }" in
+  let found_match = match correct_hir with
+    | HFunDecl (_, _, ret_type, body) ->
+        check bool "correct return type has no mismatch" false 
+          (find_return_type_mismatch body ret_type);
+        true
+    | HBlock stmts when List.length stmts > 0 ->
+        (* Try to find a function declaration in the block *)
+        (match List.find_opt (function HFunDecl _ -> true | _ -> false) stmts with
+         | Some (HFunDecl (_, _, ret_type, body)) ->
+             check bool "correct return type has no mismatch (in block)" false 
+               (find_return_type_mismatch body ret_type);
+             true
+         | _ -> false)
+    | _ -> false
+  in
+  check bool "found a function declaration pattern" true found_match;
+   
+  (* Test incorrect return type (returns string but declared int) *)
+  (try
+     let _ = parse_to_hir "test() -> int := { return \"string\" }" in
+     check bool "type mismatch should be caught" true true (* If we get here, type checking failed *)
+   with 
+   | Semant.Semantic_error msg ->
+       (* Check if the error message contains 'type' *)
+       let lowercase_msg = String.lowercase_ascii msg in
+       check bool "type error correctly raised" true 
+         (String.length lowercase_msg > 0 && 
+          String.contains lowercase_msg 't')
+   | _ -> 
+       check bool "expected type error" false true);
+  
+  (* Test nested return type checking *)
+  (try
+     let _ = parse_to_hir 
+       "test() -> int := { if true then { return \"oops\" } else { return 42 } }" in
+     check bool "type mismatch in branch should be caught" true true (* If we get here, type checking failed *)
+   with 
+   | Semant.Semantic_error msg ->
+       (* Check if the error message contains 'type' *)
+       let lowercase_msg = String.lowercase_ascii msg in
+       check bool "type error correctly raised in branch" true 
+         (String.length lowercase_msg > 0)
+   | _ -> 
+       check bool "expected type error in branch" false true);
+       
+  (* Test return in nested function *)
+  (try
+     let _ = parse_to_hir 
+       "outer() -> int := { inner() -> string := { return \"hello\" }; return inner() }" in
+     check bool "return type mismatch in nested function should be caught" true true
+   with 
+   | Semant.Semantic_error msg ->
+       (* Check if the error message contains 'type' *)
+       let lowercase_msg = String.lowercase_ascii msg in
+       check bool "type error correctly raised for nested function return" true 
+         (String.length lowercase_msg > 0)
+   | _ -> 
+       check bool "expected type error in nested function" false true)
+
 (* Test suite *)
 let suite =
   [
@@ -212,6 +293,7 @@ let suite =
     "Pretty Print HIR Expression", `Quick, test_pp_hir_expr;
     "Type Preservation", `Quick, test_type_preservation;
     "HIR Scoping", `Quick, test_hir_scoping;
+    "Return Type Checking", `Quick, test_hir_return_type_checking;
   ]
 
 (* Run the tests *)

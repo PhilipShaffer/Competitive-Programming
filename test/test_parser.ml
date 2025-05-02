@@ -378,6 +378,59 @@ let test_complete_programs () =
     ])
     (parse_string "factorial(n: int) -> int := { result: int := 1; while n > 0 do { result := result * n; n := n - 1 }; return result }; print factorial(5)")
 
+(* Test return statements in different contexts *)
+let test_return_statements () =
+  (* Test basic return statement *)
+  check stmt_testable "basic return statement"
+    (Return (Int 42))
+    (match parse_string "return 42" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    
+  (* Test function with code after return.
+     This tests that the AST still builds code after a return statement.
+     Skipping that code will be tested in codegen *)
+  check stmt_testable "function with code after return"
+    (FunDecl ("test", [], IntType, 
+              Block [
+                Return (Int 42);
+                Print (String "unreachable code")
+              ]))
+    (match parse_string "test() -> int := { return 42; print \"unreachable code\" }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST");
+     
+  (* Test return in if statement *)
+  check stmt_testable "return in if statement"
+    (FunDecl ("test", [("x", IntType)], IntType,
+              Block [
+                If (Binop (Gt, Var "x", Int 0),
+                   Block [Return (Int 1)],
+                   Block [Return (Int 0)])
+              ]))
+    (match parse_string "test(x: int) -> int := { if x > 0 then { return 1 } else { return 0 } }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST");
+     
+  (* Test return in nested block *)
+  check stmt_testable "return in nested block"
+    (FunDecl ("test", [], IntType,
+              Block [
+                Block [Return (Int 42)];
+                Print (String "unreachable code")
+              ]))
+    (match parse_string "test() -> int := { { return 42 }; print \"unreachable code\" }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST");
+     
+  (* Test early return in function *)
+  check stmt_testable "early return in function"
+    (FunDecl ("test", [("x", IntType)], IntType,
+              Block [
+                If (Binop (Gt, Var "x", Int 10),
+                   Block [Return (Var "x")], 
+                   Block []);
+                Print (String "only for x <= 10");
+                Return (Int 0)
+              ]))
+    (match parse_string "test(x: int) -> int := { if x > 10 then { return x } print \"only for x <= 10\"; return 0 }" 
+     with Block [s] -> s | _ -> failwith "Unexpected AST")
+
 (* Test suite *)
 let suite =
   [
@@ -393,6 +446,7 @@ let suite =
     "Complex Statements", `Quick, test_complex_statements;
     "Operator Precedence", `Quick, test_operator_precedence;
     "Complete Programs", `Quick, test_complete_programs;
+    "Return Statements", `Quick, test_return_statements;
   ]
 
 (* Run the tests *)
