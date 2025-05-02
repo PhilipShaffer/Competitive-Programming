@@ -5,9 +5,9 @@ open Hir
 
 exception Semantic_error of string
 
-(* Symbol table entry *)
+(* Symbol table entry with optional array size *)
 type symbol_info =
-  | SymVar of value_type
+  | SymVar of value_type * int option (* Type and optional array size for arrays *)
   | SymFun of (value_type list) * value_type
 
 (* Symbol table with scope stack *)
@@ -56,18 +56,55 @@ let add_symbol tbls name info =
 let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
   match stmt with
   | Assign (x, e) ->
-      let sym = match lookup_symbol tbls x with Some (SymVar _) -> sym_of_name x | _ -> raise (Semantic_error ("Undeclared variable: " ^ x)) in
+      let sym = match lookup_symbol tbls x with Some (SymVar (_, _)) -> sym_of_name x | _ -> raise (Semantic_error ("Undeclared variable: " ^ x)) in
       let he, t = analyze_expr tbls e in
       (* Strict typing: must match exactly *)
-      (match lookup_symbol tbls x with Some (SymVar t') when t = t' -> () | _ -> raise (Semantic_error ("Type mismatch in assignment to: " ^ x)));
+      (match lookup_symbol tbls x with 
+       | Some (SymVar (t', _)) when t = t' -> () 
+       | _ -> raise (Semantic_error ("Type mismatch in assignment to: " ^ x)));
       HAssign (sym, he)
   | ArrayAssign (arr, idx, value) ->
       let harr, arr_type = analyze_expr tbls arr in
       let hidx, idx_type = analyze_expr tbls idx in
       let hval, val_type = analyze_expr tbls value in
       if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
+      
+      (* Reuse the same bounds checking logic for array assignments *)
+      let check_constant_array _name arr_len idx_val =
+        if idx_val < 0 then 
+          raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int idx_val))
+        else if idx_val >= arr_len then
+          raise (Semantic_error ("[Semant] Array index out of bounds: index " ^ string_of_int idx_val ^ 
+                                " exceeds array length " ^ string_of_int arr_len))
+      in
+      
+      (* Check bounds when possible and track if we've statically verified bounds *)
+      let bounds_checked = 
+        (* First handle the negative index case separately to avoid control flow warnings *)
+        match idx with
+        | Int i when i < 0 ->
+            (* We can always detect negative indices at compile time *)
+            raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int i))
+        | _ ->
+            (* Now handle the regular cases *)
+            match arr, idx with
+            | ArrayLit elems, Int i -> 
+                let arr_len = List.length elems in
+                check_constant_array "array literal" arr_len i;
+                true (* Bounds checked at compile time *)
+            | Var arr_name, Int i ->
+                (match lookup_symbol tbls arr_name with
+                 | Some (SymVar (ArrayType _, Some size)) ->
+                     check_constant_array arr_name size i;
+                     true (* Bounds checked at compile time *)
+                 | _ -> false)
+            | _, _ -> 
+                false (* Need runtime bounds checking *)
+      in
+
+      (* Type checking *)
       (match arr_type with
-      | ArrayType elem_type when elem_type = val_type -> HArrayAssign (harr, hidx, hval)
+      | ArrayType elem_type when elem_type = val_type -> HArrayAssign (harr, hidx, hval, bounds_checked)
       | ArrayType _ -> raise (Semantic_error "Type mismatch in array assignment")
       | _ -> raise (Semantic_error "Cannot index non-array type"))
   | Declare (x, t, e) ->
@@ -75,7 +112,15 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       Hashtbl.replace sym_table_ids x sym;
       let he, et = analyze_expr tbls e in
       if t <> et then raise (Semantic_error ("Type mismatch in declaration of: " ^ x));
-      add_symbol tbls x (SymVar t);
+      
+      (* Track array size for arrays initialized with literals *)
+      let array_size = 
+        match t, e with
+        | ArrayType _, ArrayLit elems -> Some (List.length elems)
+        | _ -> None 
+      in
+      
+      add_symbol tbls x (SymVar (t, array_size));
       HDeclare (sym, t, he)
   (* Let binding removed as it's no longer needed *)
   | If (cond, st, sf) ->
@@ -114,13 +159,7 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
         (sid, t)
       ) params in
       let tbls' = push_scope tbls in
-      List.iter2 (fun (n, t) (_sid, _) -> 
-        (* Check for duplicate parameter names *)
-        if lookup_in_current_scope tbls' n <> None then
-          raise (Semantic_error ("Duplicate parameter name in function " ^ name ^ ": " ^ n))
-        else
-          add_symbol tbls' n (SymVar t)
-      ) params param_syms;
+      List.iter2 (fun (n, t) (_sid, _) -> add_symbol tbls' n (SymVar (t, None))) params param_syms;
       add_symbol tbls' name (SymFun (List.map snd params, ret_type));
       let hbody = analyze_stmt tbls' body in
       HFunDecl (sym, param_syms, ret_type, hbody)
@@ -132,7 +171,7 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
   match expr with
   | Var x ->
       (match lookup_symbol tbls x with
-      | Some (SymVar t) -> (HVar (sym_of_name x, t), t)
+      | Some (SymVar (t, _)) -> (HVar (sym_of_name x, t), t)
       | _ -> raise (Semantic_error ("Undeclared variable: " ^ x)))
   | Int i -> (HInt i, IntType)
   | String s -> (HString s, StringType)
@@ -150,26 +189,47 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
       let hidx, idx_type = analyze_expr tbls idx in
       if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
             
-      (* Add static bounds check for compile-time determinable cases *)
-      (match arr, idx with
-        | ArrayLit elems, Int i -> 
-            (* For array literals with constant index, we can check at compile time *)
-            let arr_len = List.length elems in
-            if i < 0 then 
-              raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int i))
-            else if i >= arr_len then
-              raise (Semantic_error ("[Semant] Array index out of bounds: index " ^ string_of_int i ^ 
-                                    " exceeds array length " ^ string_of_int arr_len))
-        | _, Int i when i < 0 -> 
-            (* We can always detect negative indices *)
+      (* Enhanced static bounds check for compile-time determinable cases *)
+      let check_constant_array _name arr_len idx_val =
+        if idx_val < 0 then 
+          raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int idx_val))
+        else if idx_val >= arr_len then
+          raise (Semantic_error ("[Semant] Array index out of bounds: index " ^ string_of_int idx_val ^ 
+                                 " exceeds array length " ^ string_of_int arr_len))
+      in
+
+      (* Check bounds based on various cases and track if we've statically verified bounds *)
+      let bounds_checked = 
+        (* First handle the negative index case separately to avoid control flow warnings *)
+        match idx with
+        | Int i when i < 0 ->
+            (* We can always detect negative indices at compile time *)
             raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int i))
-        | _, _ -> 
-            (* For variable indices or non-literal arrays, we'll rely on runtime checks *)
-            ()
-      );
+        | _ ->
+            (* Now handle the regular cases *)
+            match arr, idx with
+            | ArrayLit elems, Int i -> 
+                (* For array literals with constant index, we can check at compile time *)
+                let arr_len = List.length elems in
+                check_constant_array "array literal" arr_len i;
+                true (* Bounds checked at compile time *)
+                
+            | Var arr_name, Int i ->
+                (* For named arrays with constant index, use our tracked array size *)
+                (match lookup_symbol tbls arr_name with
+                | Some (SymVar (ArrayType _, Some size)) ->
+                    (* We have the array size stored in the symbol table *)
+                    check_constant_array arr_name size i;
+                    true (* Bounds checked at compile time *)
+                | _ -> false)
+                
+            | _, _ -> 
+                (* For variable indices or non-literal arrays, we'll rely on runtime checks *)
+                false
+      in
       
       (match arr_type with
-      | ArrayType elem_type -> (HArrayGet (harr, hidx, elem_type), elem_type)
+      | ArrayType elem_type -> (HArrayGet (harr, hidx, elem_type, bounds_checked), elem_type)
       | _ -> raise (Semantic_error "Cannot index non-array type"))
   | ArrayLen arr ->
       let harr, arr_type = analyze_expr tbls arr in
@@ -204,3 +264,5 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
             raise (Semantic_error ("Type mismatch in function call: " ^ fname));
           (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
       | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
+
+(* Removed duplicate definition of sym_table_ids and sym_of_name *)

@@ -16,13 +16,13 @@ type hir_expr =
   | HUnop of uop * hir_expr * value_type
   | HFunCall of hir_symbol * hir_expr list * value_type
   | HArrayLit of hir_expr list * value_type  (* Array literal with element type *)
-  | HArrayGet of hir_expr * hir_expr * value_type  (* Array access with element type *)
+  | HArrayGet of hir_expr * hir_expr * value_type * bool  (* Array access with element type and bounds_checked flag *)
   | HArrayLen of hir_expr  (* Array length *)
 
 (* HIR statements *)
 type hir_stmt =
   | HAssign of hir_symbol * hir_expr
-  | HArrayAssign of hir_expr * hir_expr * hir_expr  (* Array assignment: arr[idx] = value *)
+  | HArrayAssign of hir_expr * hir_expr * hir_expr * bool  (* Array assignment: arr[idx] = value, bounds_checked flag *)
   | HDeclare of hir_symbol * value_type * hir_expr
   | HIf of hir_expr * hir_stmt * hir_stmt
   | HWhile of hir_expr * hir_stmt
@@ -43,14 +43,15 @@ let type_of_expr (expr : hir_expr) : Ast.value_type =
   | HUnop (_, _, ty) -> ty
   | HFunCall (_, _, ty) -> ty
   | HArrayLit (_, ty) -> ty
-  | HArrayGet (_, _, ty) -> ty
+  | HArrayGet (_, _, ty, _) -> ty
   | HArrayLen _ -> Ast.IntType
 
 (* Minimal pretty-printer for HIR - adapted from bin/main.ml *) 
 let rec pp_hir_stmt (stmt : hir_stmt) : string =
   match stmt with
   | HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
-  | HArrayAssign (arr, idx, value) -> Printf.sprintf "HArrayAssign(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
+  | HArrayAssign (arr, idx, value, checked) -> 
+      Printf.sprintf "HArrayAssign(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value) checked
   | HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
   | HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
   | HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)
@@ -76,7 +77,8 @@ and pp_hir_expr (expr : hir_expr) : string =
   | HArrayLit (elems, ty) ->
       let elems_str = String.concat ~sep:", " (List.map ~f:pp_hir_expr elems) in
       Printf.sprintf "HArrayLit([%s], %s)" elems_str (pp_ty ty)
-  | HArrayGet (arr, idx, ty) -> Printf.sprintf "HArrayGet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty)
+  | HArrayGet (arr, idx, ty, checked) -> 
+      Printf.sprintf "HArrayGet(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty) checked
   | HArrayLen arr -> Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
 
 and pp_ty (ty : Ast.value_type) : string =
