@@ -375,26 +375,6 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       ignore (build_call printf_ty printf_func print_args "printf_call" builder);
       None (* Print doesn't return a value *) 
 
-  | HLet (sym, expr, body_stmt) ->
-      let let_scope = Stdlib.Hashtbl.create 8 in
-      let body_tables = let_scope :: tables in
-      let current_function = block_parent (insertion_block builder) in
-      let entry_bb = entry_block current_function in
-      let first_instr_opt = instr_begin entry_bb in
-      let entry_builder = 
-          match first_instr_opt with 
-          | At_end _ -> builder_at_end context entry_bb
-          | Before first_instr -> builder_before context first_instr
-      in
-      let var_ty = Hir.type_of_expr expr in 
-      let llvm_ty = llvm_type_of var_ty in
-      let ptr = build_alloca llvm_ty ("let_var_" ^ Int.to_string sym) entry_builder in
-      let init_val = codegen_expr tables expr in 
-      ignore (build_store init_val ptr builder);
-      Stdlib.Hashtbl.add let_scope sym ptr;
-      let _ = codegen_stmt body_tables body_stmt in 
-      None
-
   | HWhile (cond_expr, body_stmt) ->
       let the_function = block_parent (insertion_block builder) in
       

@@ -60,13 +60,7 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       if t <> et then raise (Semantic_error ("Type mismatch in declaration of: " ^ x));
       add_symbol tbls x (SymVar t);
       HDeclare (sym, t, he)
-  | Let (x, e, s) ->
-      let sym = fresh_symbol () in
-      let he, t = analyze_expr tbls e in
-      let tbls' = push_scope tbls in
-      add_symbol tbls' x (SymVar t);
-      let hs = analyze_stmt tbls' s in
-      HLet (sym, he, hs)
+  (* Let binding removed as it's no longer needed *)
   | If (cond, st, sf) ->
       let hc, t = analyze_expr tbls cond in
       if t <> BoolType then raise (Semantic_error "Condition must be bool");

@@ -24,7 +24,6 @@ type hir_stmt =
   | HAssign of hir_symbol * hir_expr
   | HArrayAssign of hir_expr * hir_expr * hir_expr  (* Array assignment: arr[idx] = value *)
   | HDeclare of hir_symbol * value_type * hir_expr
-  | HLet of hir_symbol * hir_expr * hir_stmt
   | HIf of hir_expr * hir_stmt * hir_stmt
   | HWhile of hir_expr * hir_stmt
   | HPrint of hir_expr
@@ -53,7 +52,6 @@ let rec pp_hir_stmt (stmt : hir_stmt) : string =
   | HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
   | HArrayAssign (arr, idx, value) -> Printf.sprintf "HArrayAssign(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
-  | HLet (sym, expr, s) -> Printf.sprintf "HLet(%d, %s, %s)" sym (pp_hir_expr expr) (pp_hir_stmt s)
   | HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
   | HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)
   | HPrint expr -> Printf.sprintf "HPrint(%s)" (pp_hir_expr expr)

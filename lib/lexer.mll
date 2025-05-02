@@ -29,7 +29,6 @@ rule read =
   | "print" { PRINT }  (* Print keyword *)
   | "while" { WHILE }  (* While keyword *)
   | "do"    { DO }  (* Do keyword *)
-  | "in"    { IN }  (* In keyword *)
   | "and"   { AND }  (* Logical AND operator *)
   | "or"    { OR }  (* Logical OR operator *)
   | "not"   { NOT }  (* Logical NOT operator *)

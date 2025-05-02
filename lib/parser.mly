@@ -18,7 +18,7 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO LET IN ASSIGN
+%token IF THEN ELSE PRINT WHILE DO ASSIGN
 
 (* Tokens for logical operators *)
 %token AND OR NOT
@@ -96,9 +96,8 @@ stmt:
   | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
   | RETURN; e = expr { Return e }  (* Return statement *)
   | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
-  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
-  | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
-  | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)
+  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x := e *)
+  | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed variable declaration: x: t := e *)
   | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
   | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE { If (e, Block s, Block []) }  (* Conditional: if e then { ... } *)
   | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)

@@ -25,7 +25,6 @@ and hir_stmt =
   | HAssign of hir_symbol * hir_expr
   | HArrayAssign of hir_expr * hir_expr * hir_expr  (** Array assignment: arr[idx] = value *)
   | HDeclare of hir_symbol * value_type * hir_expr
-  | HLet of hir_symbol * hir_expr * hir_stmt
   | HIf of hir_expr * hir_stmt * hir_stmt
   | HWhile of hir_expr * hir_stmt
   | HPrint of hir_expr
