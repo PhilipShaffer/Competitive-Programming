@@ -3,3 +3,21 @@
  (libraries
   Competitive_Programming.libraries
   alcotest))
+
+(test
+ (name test_parser)
+ (libraries
+  Competitive_Programming.libraries
+  alcotest))
+
+(test
+ (name test_semant)
+ (libraries
+  Competitive_Programming.libraries
+  alcotest))
+
+(test
+ (name test_hir)
+ (libraries
+  Competitive_Programming.libraries
+  alcotest))

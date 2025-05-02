@@ -30,10 +30,27 @@ let rec lookup_symbol tbls name =
   | [] -> None
   | tbl :: rest -> (try Some (Hashtbl.find tbl name) with Not_found -> lookup_symbol rest name)
 
+(* Check if a symbol exists in the current scope (top of stack) *)
+let lookup_in_current_scope tbl name =
+  match tbl with
+  | [] -> None
+  | current :: _ -> (try Some (Hashtbl.find current name) with Not_found -> None)
+
 (* Enter a new scope *)
 let push_scope tbls = (Hashtbl.create 16) :: tbls
+
+(* Exit a scope *)
 let pop_scope tbls = match tbls with | _ :: rest -> rest | [] -> []
-let add_symbol tbls name info = match tbls with | tbl :: _ -> Hashtbl.add tbl name info | [] -> failwith "No scope to add symbol"
+
+(* Add a symbol to the current scope, fail if it already exists in this scope *)
+let add_symbol tbls name info =
+  match tbls with
+  | tbl :: _ ->
+      if Hashtbl.mem tbl name then
+        raise (Semantic_error ("Symbol already defined in this scope: " ^ name))
+      else
+        Hashtbl.add tbl name info
+  | [] -> failwith "No scope to add symbol"
 
 (* Main entry for semantic analysis: from AST to HIR *)
 let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
@@ -125,10 +142,14 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       (* First pass: add all function signatures to the symbol table *)
       List.iter (function
         | FunDecl (name, params, ret_type, _) ->
-            add_symbol tbls' name (SymFun (List.map snd params, ret_type))
+            if lookup_in_current_scope tbls' name <> None then
+              raise (Semantic_error ("Function already defined in this scope: " ^ name))
+            else
+              add_symbol tbls' name (SymFun (List.map snd params, ret_type))
         | _ -> ()) sl;
       (* Second pass: analyze all statements *)
-      HBlock (List.map (analyze_stmt tbls') sl)
+      let hir_stmts = List.map (analyze_stmt tbls') sl in
+      HBlock hir_stmts
   | FunDecl (name, params, ret_type, body) ->
       let sym = fresh_symbol () in
       Hashtbl.replace sym_table_ids name sym;

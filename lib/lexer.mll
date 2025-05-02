@@ -13,7 +13,7 @@ let newline = '\n'              (* Newline character *)
 let digit  = ['0'-'9']          (* Digits *)
 let int    = '-'? digit+        (* Integer literals, optionally starting with a minus sign *)
 let float  = '-'? digit+ '.' digit+
-let letter = ['a'-'z' 'A'-'Z']  (* Letters *)
+let letter = ['a'-'z' 'A'-'Z' '_']  (* Letters *)
 let id     = letter (letter | digit)* (* Identifiers: starts with a letter, followed by letters or digits *)
 
 (* The main lexer rule - defines how the lexer should process the input *)
@@ -69,6 +69,7 @@ rule read =
   | ";"     { SEMICOLON }  (* Semicolon *)
   | ":"     { COLON }  (* Colon *)
   | eof     { EOF }  (* End-of-file *)
+  | _ { raise (Failure ("Unexpected character: " ^ Lexing.lexeme lexbuf)) }  (* Catch-all for unexpected characters *)
 
 and read_string buf =
   parse
