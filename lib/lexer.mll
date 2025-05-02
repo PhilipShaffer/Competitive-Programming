@@ -21,6 +21,9 @@ rule read =
   parse
   | white   { read lexbuf }  (* Ignore whitespace *)
   | newline { Lexing.new_line lexbuf; read lexbuf }  (* Ignore newlines *)
+  | "//"    { read_single_line_comment lexbuf }  (* Single-line comment *)
+  | "/*"    { read_multi_line_comment lexbuf }   (* Multi-line comment *)
+  | "(*"    { read_ocaml_style_comment lexbuf }  (* OCaml-style comment *)
   | "true"  { BOOL true }  (* Boolean literal true *)
   | "false" { BOOL false }  (* Boolean literal false *)
   | "if"    { IF }  (* If keyword *)
@@ -80,3 +83,26 @@ and read_string buf =
     }
   | eof { raise (Failure "Unterminated string") }
   | _ { raise (Failure ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
+
+(* Rule for single-line comments: reads until end of line and discards *)
+and read_single_line_comment =
+  parse
+  | newline { Lexing.new_line lexbuf; read lexbuf } (* End of comment, return to main lexer *)
+  | eof     { EOF }                                (* End of file *)
+  | _       { read_single_line_comment lexbuf }    (* Ignore anything else *)
+
+(* Rule for multi-line C-style comments: reads until "*/" and discards *)
+and read_multi_line_comment =
+  parse
+  | "*/"    { read lexbuf }                        (* End of comment, return to main lexer *)
+  | newline { Lexing.new_line lexbuf; read_multi_line_comment lexbuf }
+  | eof     { raise (Failure "Unterminated multi-line comment") }
+  | _       { read_multi_line_comment lexbuf }     (* Ignore anything else *)
+
+(* Rule for OCaml-style comments (*...*)  *)
+and read_ocaml_style_comment =
+  parse
+  | "*)"    { read lexbuf }                        (* End of comment, return to main lexer *)
+  | newline { Lexing.new_line lexbuf; read_ocaml_style_comment lexbuf }
+  | eof     { raise (Failure "Unterminated OCaml-style comment") }
+  | _       { read_ocaml_style_comment lexbuf }    (* Ignore anything else *)
