@@ -67,18 +67,35 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
   | HArrayLit (elems, elem_ty) ->
       let length = List.length elems in
       
-      (* Allocate memory for the array *)
-      let array_size = const_int (i64_type context) (length * 8) in
-      let array_ptr = build_call malloc_ty malloc_func [| array_size |] "array_malloc" builder in
+      (* C-compatible array implementation:
+         We'll create a struct { size_t length; element_type data[]; }
+         This keeps the array length with the array pointer for bounds checking *)
+      
+      (* First, allocate memory for length + elements 
+         (8 bytes for length + element_size * length) *)
+      let elem_size = 8 (* All our types use 64 bits/8 bytes in this implementation *) in
+      let array_size = const_int (i64_type context) (8 + (length * elem_size)) in
+      let array_mem = build_call malloc_ty malloc_func [| array_size |] "array_malloc" builder in
+      
+      (* Cast to appropriate pointer type *)
+      let array_ptr = build_pointercast array_mem (pointer_type context) "array_ptr" builder in
+      
+      (* Store length at the beginning *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      ignore (build_store (const_int (i64_type context) length) length_ptr builder);
+      
+      (* Calculate pointer to the first element (after the length) *)
+      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
+      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
       
       (* Store elements *)
       List.iteri elems ~f:(fun i elem ->
           let elem_val = codegen_expr tables elem in
-          let elem_ptr = build_gep (llvm_type_of elem_ty) array_ptr [| const_int (i64_type context) i |] "elem_ptr" builder in
+          let elem_ptr = build_gep (llvm_type_of elem_ty) data_ptr_cast [| const_int (i64_type context) i |] "elem_ptr" builder in
           ignore (build_store elem_val elem_ptr builder)
       );
       
-      (* Return the array pointer *)
+      (* Return the array pointer (points to the struct) *)
       array_ptr
       
   | HArrayGet (arr, idx, ty) ->
@@ -86,24 +103,84 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
       let idx_val = codegen_expr tables idx in
       let elem_ty = llvm_type_of ty in
       
-      (* First, explicitly load the array pointer from the array variable *)
-      let array_ptr = build_load (pointer_type context) arr_val "array_ptr_load" builder in
+      (* Load the array pointer from the array variable *)
+      let array_ptr = 
+        match arr with
+        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
+        | _ -> arr_val
+      in
       
-      (* Now get element pointer and load its value *)
-      let elem_ptr = build_gep elem_ty array_ptr [| idx_val |] "elem_ptr" builder in
+      (* Get array length for bounds checking *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      let length = build_load (i64_type context) length_ptr "array_length" builder in
+      
+      (* Add bounds checking *)
+      (* First check if index is negative *)
+      let zero = const_int (i64_type context) 0 in
+      let is_negative = build_icmp Llvm.Icmp.Slt idx_val zero "is_negative" builder in
+      
+      (* Check if index >= length *)
+      let is_too_large = build_icmp Llvm.Icmp.Sge idx_val length "is_too_large" builder in
+      
+      (* Combine both bounds checks *)
+      let is_out_of_bounds = build_or is_negative is_too_large "is_out_of_bounds" builder in
+      
+      (* Create blocks for bounds checking *)
+      let current_block = insertion_block builder in
+      let parent = block_parent current_block in
+      let out_of_bounds_block = append_block context "out_of_bounds" parent in
+      let in_bounds_block = append_block context "in_bounds" parent in
+      
+      (* Branch based on bounds check *)
+      ignore (build_cond_br is_out_of_bounds out_of_bounds_block in_bounds_block builder);
+      
+      (* Set up out of bounds block with error message *)
+      position_at_end out_of_bounds_block builder;
+      
+      (* Create formatted error message that shows the index and array length *)
+      let idx_ptr = build_alloca (i64_type context) "idx_ptr" builder in
+      ignore (build_store idx_val idx_ptr builder);
+      let length_val_ptr = build_alloca (i64_type context) "length_val_ptr" builder in
+      ignore (build_store length length_val_ptr builder);
+      
+      let err_msg = build_global_stringptr "[Codegen] Array index out of bounds: index %lld, array length %lld\n" "bounds_err_msg" builder in
+      
+      (* Print error message with index and length values *)
+      ignore (build_call printf_ty printf_func [| err_msg; idx_val; length |] "print_error" builder);
+      
+      (* Exit with error code *)
+      let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
+      ignore (build_call (function_type (void_type context) [| i32_type context |]) exit_func [| const_int (i32_type context) 1 |] "" builder);
+      ignore (build_unreachable builder);
+      
+      (* Continue with actual access in the in-bounds case *)
+      position_at_end in_bounds_block builder;
+      
+      (* Calculate pointer to the data part (after the length field) *)
+      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
+      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+      
+      (* Get element pointer and load its value *)
+      let elem_ptr = build_gep elem_ty data_ptr_cast [| idx_val |] "elem_ptr" builder in
       build_load elem_ty elem_ptr "elem_load" builder
       
   | HArrayLen arr ->
-      (* For now, we'll just return the length from the array literal *)
-      (match arr with
-       | HVar _ ->
-           (* If it's a variable, we need to get the length from somewhere *)
-           (* For now, we'll just return a constant length *)
-           const_int (i64_type context) 5
-       | HArrayLit (elems, _) ->
-           (* If it's an array literal, we can get the length directly *)
-           const_int (i64_type context) (List.length elems)
-       | _ -> failwith "Expected array variable or literal for len operation")
+      let arr_val = codegen_expr tables arr in
+      
+      (* For our C-compatible array implementation:
+         We stored the length at the beginning of the allocated memory
+         So we need to load this value *)
+      let array_ptr = 
+        match arr with
+        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
+        | _ -> arr_val
+      in
+      
+      (* Cast to int64 pointer to access the length field *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      
+      (* Load and return the length value *)
+      build_load (i64_type context) length_ptr "array_length" builder
 
   | HBinop (op, e1, e2, _ty) ->
       let lhs = codegen_expr tables e1 in
@@ -218,8 +295,45 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       (* First, explicitly load the array pointer from the array variable *)
       let array_ptr = build_load (pointer_type context) arr_val "array_ptr_load" builder in
       
-      (* Store element *)
-      let elem_ptr = build_gep elem_ty array_ptr [| idx_val |] "elem_ptr" builder in
+      (* Add bounds checking - compare with array length *)
+      (* First check if index is negative *)
+      let zero = const_int (i64_type context) 0 in
+      let is_negative = build_icmp Llvm.Icmp.Slt idx_val zero "is_negative" builder in
+      
+      (* Get length for bounds checking *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      let length = build_load (i64_type context) length_ptr "array_length" builder in
+      let is_too_large = build_icmp Llvm.Icmp.Sge idx_val length "is_too_large" builder in
+      let is_out_of_bounds = build_or is_negative is_too_large "is_out_of_bounds" builder in
+      
+      (* Create blocks for bounds checking *)
+      let current_block = insertion_block builder in
+      let parent = block_parent current_block in
+      let out_of_bounds_block = append_block context "assign_out_of_bounds" parent in
+      let in_bounds_block = append_block context "assign_in_bounds" parent in
+      
+      (* Branch based on bounds check *)
+      ignore (build_cond_br is_out_of_bounds out_of_bounds_block in_bounds_block builder);
+      
+      (* Set up out of bounds block with error message *)
+      position_at_end out_of_bounds_block builder;
+      let err_msg = build_global_stringptr "[Codegen] Array index out of bounds in assignment" "assign_bounds_err_msg" builder in
+      
+      (* Print error message and exit with error code *)
+      ignore (build_call printf_ty printf_func [| err_msg |] "print_assign_error" builder);
+      let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
+      ignore (build_call (function_type (void_type context) [| i32_type context |]) exit_func [| const_int (i32_type context) 1 |] "" builder);
+      ignore (build_unreachable builder);
+      
+      (* Continue with actual assignment in the in-bounds case *)
+      position_at_end in_bounds_block builder;
+      
+      (* Calculate pointer to the first element (after the length) *)
+      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
+      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+      
+      (* Store element at the correct index *)
+      let elem_ptr = build_gep elem_ty data_ptr_cast [| idx_val |] "elem_assign_ptr" builder in
       ignore (build_store value_val elem_ptr builder);
       None
 
@@ -443,4 +557,4 @@ and codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
 and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option =
   match stmt with
   | _ -> failwith ("Codegen not implemented for statement: " ^ pp_hir_stmt stmt) 
-*) 
+*)

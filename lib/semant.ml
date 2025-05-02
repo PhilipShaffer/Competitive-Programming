@@ -122,6 +122,25 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
       let harr, arr_type = analyze_expr tbls arr in
       let hidx, idx_type = analyze_expr tbls idx in
       if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
+            
+      (* Add static bounds check for compile-time determinable cases *)
+      (match arr, idx with
+        | ArrayLit elems, Int i -> 
+            (* For array literals with constant index, we can check at compile time *)
+            let arr_len = List.length elems in
+            if i < 0 then 
+              raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int i))
+            else if i >= arr_len then
+              raise (Semantic_error ("[Semant] Array index out of bounds: index " ^ string_of_int i ^ 
+                                    " exceeds array length " ^ string_of_int arr_len))
+        | _, Int i when i < 0 -> 
+            (* We can always detect negative indices *)
+            raise (Semantic_error ("[Semant] Array index out of bounds: negative index " ^ string_of_int i))
+        | _, _ -> 
+            (* For variable indices or non-literal arrays, we'll rely on runtime checks *)
+            ()
+      );
+      
       (match arr_type with
       | ArrayType elem_type -> (HArrayGet (harr, hidx, elem_type), elem_type)
       | _ -> raise (Semantic_error "Cannot index non-array type"))
