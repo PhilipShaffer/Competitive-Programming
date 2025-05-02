@@ -18,12 +18,12 @@ type hir_expr =
   | HFunCall of hir_symbol * hir_expr list * value_type
   | HArrayLit of hir_expr list * value_type  (** Array literal with element type *)
   | HArrayGet of hir_expr * hir_expr * value_type  (** Array access with element type *)
-  | HArraySet of hir_expr * hir_expr * hir_expr  (** Array assignment *)
   | HArrayLen of hir_expr  (** Array length *)
 
 (** HIR statements *)
 and hir_stmt =
   | HAssign of hir_symbol * hir_expr
+  | HArrayAssign of hir_expr * hir_expr * hir_expr  (** Array assignment: arr[idx] = value *)
   | HDeclare of hir_symbol * value_type * hir_expr
   | HLet of hir_symbol * hir_expr * hir_stmt
   | HIf of hir_expr * hir_stmt * hir_stmt

@@ -42,12 +42,12 @@ type expr =
  | FunCall of string * expr list  (* Function call: f(a, b, ...) *)
  | ArrayLit of expr list     (* Array literal: [1, 2, 3] *)
  | ArrayGet of expr * expr   (* Array access: arr[idx] *)
- | ArraySet of expr * expr * expr (* Array assignment: arr[idx] = value *)
  | ArrayLen of expr          (* Array length: len(arr) *)
 
 (* Statements - represent actions or commands *)
 type stmt =
  | Assign of string * expr   (* Assignment: x = expr *)
+ | ArrayAssign of expr * expr * expr  (* Array assignment: arr[idx] = value *)
  | Declare of string * value_type * expr (* Type declaration *)
  | Let of string * expr * stmt (* Let binding: let x = expr in stmt *)
  | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)

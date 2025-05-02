@@ -15,6 +15,7 @@ open Llvm
 let rec pp_hir_stmt (stmt : Hir.hir_stmt) : string =
   match stmt with
   | Hir.HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
+  | Hir.HArrayAssign (arr, idx, value) -> Printf.sprintf "HArrayAssign(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | Hir.HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
   | Hir.HLet (sym, expr, s) -> Printf.sprintf "HLet(%d, %s, %s)" sym (pp_hir_expr expr) (pp_hir_stmt s)
   | Hir.HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
@@ -43,8 +44,6 @@ and pp_hir_expr (expr : Hir.hir_expr) : string =
       Printf.sprintf "HArrayLit([%s], %s)" elems_str (pp_ty ty)
   | Hir.HArrayGet (arr, idx, ty) ->
       Printf.sprintf "HArrayGet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty)
-  | Hir.HArraySet (arr, idx, value) ->
-      Printf.sprintf "HArraySet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | Hir.HArrayLen arr ->
       Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
 

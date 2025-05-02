@@ -11,6 +11,8 @@ let context = global_context ()
 let the_module = create_module context "PigletJIT"
 let builder = builder context
 
+(* No helper function needed as we're taking a more direct approach *)
+
 (* Declare external printf function *) 
 let printf_ty = var_arg_function_type (i32_type context) [| pointer_type context |]
 let printf_func = declare_function "printf" printf_ty the_module
@@ -84,20 +86,12 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
       let idx_val = codegen_expr tables idx in
       let elem_ty = llvm_type_of ty in
       
-      (* Get element pointer and load *)
-      let elem_ptr = build_gep elem_ty arr_val [| idx_val |] "elem_ptr" builder in
+      (* First, explicitly load the array pointer from the array variable *)
+      let array_ptr = build_load (pointer_type context) arr_val "array_ptr_load" builder in
+      
+      (* Now get element pointer and load its value *)
+      let elem_ptr = build_gep elem_ty array_ptr [| idx_val |] "elem_ptr" builder in
       build_load elem_ty elem_ptr "elem_load" builder
-      
-  | HArraySet (arr, idx, value) ->
-      let arr_val = codegen_expr tables arr in
-      let idx_val = codegen_expr tables idx in
-      let value_val = codegen_expr tables value in
-      let elem_ty = type_of value_val in
-      
-      (* Store element *)
-      let elem_ptr = build_gep elem_ty arr_val [| idx_val |] "elem_ptr" builder in
-      ignore (build_store value_val elem_ptr builder);
-      const_null (void_type context)
       
   | HArrayLen arr ->
       (* For now, we'll just return the length from the array literal *)
@@ -213,6 +207,20 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       let ptr = lookup_var tables sym in
       let new_val = codegen_expr tables expr in
       ignore (build_store new_val ptr builder);
+      None
+      
+  | HArrayAssign (arr, idx, value) ->
+      let arr_val = codegen_expr tables arr in
+      let idx_val = codegen_expr tables idx in
+      let value_val = codegen_expr tables value in
+      let elem_ty = type_of value_val in
+      
+      (* First, explicitly load the array pointer from the array variable *)
+      let array_ptr = build_load (pointer_type context) arr_val "array_ptr_load" builder in
+      
+      (* Store element *)
+      let elem_ptr = build_gep elem_ty array_ptr [| idx_val |] "elem_ptr" builder in
+      ignore (build_store value_val elem_ptr builder);
       None
 
   | HBlock stmts ->

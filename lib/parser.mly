@@ -72,7 +72,6 @@ expr:
   | f = FLOAT                    { Float f }
   | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }  (* Array literal *)
   | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }  (* Array access *)
-  | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArraySet(arr, idx, value) }  (* Array assignment *)
   | LEN; LPAREN; arr = expr; RPAREN { ArrayLen arr }  (* Array length *)
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
@@ -96,6 +95,7 @@ expr:
 stmt:
   | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
   | RETURN; e = expr { Return e }  (* Return statement *)
+  | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x = e *)
   | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed let binding: let x: t = e in s *)
   | LET;    x = ID;   ASSIGN; e = expr;  IN;   s = stmt   { Let (x, e, s) }         (* Let binding: let x = e in s *)

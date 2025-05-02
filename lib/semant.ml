@@ -44,6 +44,15 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       (* Strict typing: must match exactly *)
       (match lookup_symbol tbls x with Some (SymVar t') when t = t' -> () | _ -> raise (Semantic_error ("Type mismatch in assignment to: " ^ x)));
       HAssign (sym, he)
+  | ArrayAssign (arr, idx, value) ->
+      let harr, arr_type = analyze_expr tbls arr in
+      let hidx, idx_type = analyze_expr tbls idx in
+      let hval, val_type = analyze_expr tbls value in
+      if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
+      (match arr_type with
+      | ArrayType elem_type when elem_type = val_type -> HArrayAssign (harr, hidx, hval)
+      | ArrayType _ -> raise (Semantic_error "Type mismatch in array assignment")
+      | _ -> raise (Semantic_error "Cannot index non-array type"))
   | Declare (x, t, e) ->
       let sym = fresh_symbol () in
       Hashtbl.replace sym_table_ids x sym;
@@ -121,15 +130,6 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
       if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
       (match arr_type with
       | ArrayType elem_type -> (HArrayGet (harr, hidx, elem_type), elem_type)
-      | _ -> raise (Semantic_error "Cannot index non-array type"))
-  | ArraySet (arr, idx, value) ->
-      let harr, arr_type = analyze_expr tbls arr in
-      let hidx, idx_type = analyze_expr tbls idx in
-      let hval, val_type = analyze_expr tbls value in
-      if idx_type <> IntType then raise (Semantic_error "Array index must be an integer");
-      (match arr_type with
-      | ArrayType elem_type when elem_type = val_type -> (HArraySet (harr, hidx, hval), VoidType)
-      | ArrayType _ -> raise (Semantic_error "Type mismatch in array assignment")
       | _ -> raise (Semantic_error "Cannot index non-array type"))
   | ArrayLen arr ->
       let harr, arr_type = analyze_expr tbls arr in

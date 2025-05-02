@@ -17,12 +17,12 @@ type hir_expr =
   | HFunCall of hir_symbol * hir_expr list * value_type
   | HArrayLit of hir_expr list * value_type  (* Array literal with element type *)
   | HArrayGet of hir_expr * hir_expr * value_type  (* Array access with element type *)
-  | HArraySet of hir_expr * hir_expr * hir_expr  (* Array assignment *)
   | HArrayLen of hir_expr  (* Array length *)
 
 (* HIR statements *)
 type hir_stmt =
   | HAssign of hir_symbol * hir_expr
+  | HArrayAssign of hir_expr * hir_expr * hir_expr  (* Array assignment: arr[idx] = value *)
   | HDeclare of hir_symbol * value_type * hir_expr
   | HLet of hir_symbol * hir_expr * hir_stmt
   | HIf of hir_expr * hir_stmt * hir_stmt
@@ -45,13 +45,13 @@ let type_of_expr (expr : hir_expr) : Ast.value_type =
   | HFunCall (_, _, ty) -> ty
   | HArrayLit (_, ty) -> ty
   | HArrayGet (_, _, ty) -> ty
-  | HArraySet _ -> Ast.VoidType
   | HArrayLen _ -> Ast.IntType
 
 (* Minimal pretty-printer for HIR - adapted from bin/main.ml *) 
 let rec pp_hir_stmt (stmt : hir_stmt) : string =
   match stmt with
   | HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
+  | HArrayAssign (arr, idx, value) -> Printf.sprintf "HArrayAssign(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
   | HLet (sym, expr, s) -> Printf.sprintf "HLet(%d, %s, %s)" sym (pp_hir_expr expr) (pp_hir_stmt s)
   | HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
@@ -79,7 +79,6 @@ and pp_hir_expr (expr : hir_expr) : string =
       let elems_str = String.concat ~sep:", " (List.map ~f:pp_hir_expr elems) in
       Printf.sprintf "HArrayLit([%s], %s)" elems_str (pp_ty ty)
   | HArrayGet (arr, idx, ty) -> Printf.sprintf "HArrayGet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty)
-  | HArraySet (arr, idx, value) -> Printf.sprintf "HArraySet(%s, %s, %s)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value)
   | HArrayLen arr -> Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
 
 and pp_ty (ty : Ast.value_type) : string =
