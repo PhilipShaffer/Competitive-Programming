@@ -160,7 +160,7 @@ let test_functions () =
     true
     (analyze_error 
       "add(a: int, b: int) -> int := { return a + b }; print add(1)" 
-      "Arity mismatch");
+      "Wrong number of arguments for function");
       
   (* Function call with wrong argument types *)
   check bool "function call wrong arg types"
@@ -236,6 +236,77 @@ let test_return_statements () =
     (analyze_success
       "{ return 42 }")
 
+(* Array Tests *)
+let test_array_semantics () =
+  (* Basic array declaration *)
+  check bool "array declaration"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]");
+  
+  (* Uncomment this if empty array declaration is supported in the language
+     (currently not supported in the parser, but could be added) *)
+  (* Empty array declaration *)
+  (* check bool "empty array declaration"
+    true
+    (analyze_success "arr: int[] := []"); *)
+  
+  (* Array with mixed types should fail *)
+  check bool "array with mixed types"
+    true
+    (analyze_error "arr: int[] := [1, \"hello\"]" "All array elements must have the same type");
+  
+  (* Array access *)
+  check bool "array access"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; x: int := arr[0]");
+  
+  (* Array index must be int type *)
+  check bool "array index must be int"
+    true
+    (analyze_error "arr: int[] := [1, 2, 3]; x: int := arr[true]" "Array index must be an integer");
+  
+  (* Array length *)
+  check bool "array length"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; x: int := len(arr)");
+  
+  (* len must be used with arrays *)
+  check bool "len requires array"
+    true
+    (analyze_error "x: int := 5; y: int := len(x)" "Cannot get length of non-array type");
+  
+  (* Array assignment *)
+  check bool "array assignment"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; arr[0] := 42");
+  
+  (* Nested arrays have not been implemented yet *)
+  (* Uncomment this if nested arrays are supported in the language
+     (currently not supported in the parser, but could be added) *)
+  (* Nested arrays *)
+  (* check bool "nested arrays"
+    true
+    (analyze_success "arr: int[int[]] := [[1, 2], [3, 4]]; x: int := arr[0][1]"); *)
+  
+  (* Array as function parameter *)
+  check bool "array as function parameter"
+    true
+    (analyze_success "sum(a: int[]) -> int := { return 0 }; arr: int[] := [1, 2, 3]; x: int := sum(arr)");
+  
+  (* Array as function return type *)
+  check bool "array as function return"
+    true
+    (analyze_success "makeArr() -> int[] := { return [1, 2, 3] }")
+
+let test_array_with_if () =
+  check bool "array with if statement"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; if true then { arr[0] := 42 } else { arr[0] := 21 }");
+  
+  check bool "array length in if condition"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; if len(arr) > 0 then { print \"non-empty\" }")
+
 (* Test suite *)
 let suite =
   [
@@ -244,6 +315,8 @@ let suite =
     "Type Checking", `Quick, test_type_checking;
     "Functions", `Quick, test_functions;
     "Return Statements", `Quick, test_return_statements;
+    "Arrays", `Quick, test_array_semantics;
+    "Arrays with Control Flow", `Quick, test_array_with_if;
   ]
 
 (* Run the tests *)

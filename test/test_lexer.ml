@@ -38,7 +38,7 @@ let token_testable =
 let test_keywords () =
   check (list token_testable) "keywords"
     [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
-    (lex_string "if then else print while do in and or not return void int float string bool")
+    (lex_string "if then else print while do and or not return void int float string bool")
 
 let test_operators () =
   check (list token_testable) "operators"
@@ -94,6 +94,18 @@ let test_edge_case_numbers () =
     [INT 0; FLOAT 0.0; FLOAT 0.123; FLOAT 3.0; INT 999999]
     (lex_string "0 0.0 0.123 3.0 999999")
 
+let test_array_tokens () =
+  check (list token_testable) "array tokens"
+    [LBRACKET; RBRACKET; LEN]
+    (lex_string "[ ] len")
+
+let test_array_expressions () =
+  check (list token_testable) "array expressions"
+    [ID "arr"; ASSIGN; LBRACKET; INT 1; COMMA; INT 2; COMMA; INT 3; RBRACKET; SEMICOLON; 
+     ID "x"; ASSIGN; ID "arr"; LBRACKET; INT 0; RBRACKET; SEMICOLON;
+     ID "l"; ASSIGN; LEN; ID "arr"]
+    (lex_string "arr := [1, 2, 3]; x := arr[0]; l := len arr")
+
 (* Test suite *)
 let suite =
   [
@@ -108,6 +120,8 @@ let suite =
     "Function Declaration", `Quick, test_function_declaration;
     "Complex Expressions", `Quick, test_complex_expressions;
     "Edge Case Numbers", `Quick, test_edge_case_numbers;
+    "Array Tokens", `Quick, test_array_tokens;
+    "Array Expressions", `Quick, test_array_expressions;
   ]
 
 (* Run the tests *)

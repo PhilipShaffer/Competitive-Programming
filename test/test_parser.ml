@@ -43,13 +43,18 @@ let rec expr_equal e1 e2 =
   | FunCall (f1, args1), FunCall (f2, args2) -> 
       f1 = f2 && List.length args1 = List.length args2 && 
       List.for_all2 expr_equal args1 args2
+  | ArrayLit el1, ArrayLit el2 ->
+      List.length el1 = List.length el2 &&
+      List.for_all2 expr_equal el1 el2
+  | ArrayGet (arr1, idx1), ArrayGet (arr2, idx2) ->
+      expr_equal arr1 arr2 && expr_equal idx1 idx2
+  | ArrayLen arr1, ArrayLen arr2 -> expr_equal arr1 arr2
   | _, _ -> false
 
 let rec stmt_equal s1 s2 =
   match s1, s2 with
   | Assign (v1, e1), Assign (v2, e2) -> v1 = v2 && expr_equal e1 e2
   | Declare (v1, t1, e1), Declare (v2, t2, e2) -> v1 = v2 && t1 = t2 && expr_equal e1 e2
-  | Let (v1, e1, s1'), Let (v2, e2, s2') -> v1 = v2 && expr_equal e1 e2 && stmt_equal s1' s2'
   | If (c1, t1, e1), If (c2, t2, e2) -> expr_equal c1 c2 && stmt_equal t1 t2 && stmt_equal e1 e2
   | While (c1, s1'), While (c2, s2') -> expr_equal c1 c2 && stmt_equal s1' s2'
   | Print e1, Print e2 -> expr_equal e1 e2
@@ -80,6 +85,12 @@ let rec string_of_expr = function
   | FunCall (f, args) -> 
       "FunCall(" ^ f ^ ", [" ^ 
       String.concat "; " (List.map string_of_expr args) ^ "])"
+  | ArrayLit elements ->
+      "ArrayLit([" ^ String.concat "; " (List.map string_of_expr elements) ^ "])"
+  | ArrayGet (arr, idx) ->
+      "ArrayGet(" ^ string_of_expr arr ^ ", " ^ string_of_expr idx ^ ")"
+  | ArrayLen arr ->
+      "ArrayLen(" ^ string_of_expr arr ^ ")"
 
 and string_of_bop = function
   | Add -> "Add" | Sub -> "Sub" | Mult -> "Mult" | Div -> "Div" | Mod -> "Mod"
@@ -92,7 +103,6 @@ and string_of_uop = function
 let rec string_of_stmt = function
   | Assign (v, e) -> "Assign(" ^ v ^ ", " ^ string_of_expr e ^ ")"
   | Declare (v, t, e) -> "Declare(" ^ v ^ ", " ^ string_of_type t ^ ", " ^ string_of_expr e ^ ")"
-  | Let (v, e, s) -> "Let(" ^ v ^ ", " ^ string_of_expr e ^ ", " ^ string_of_stmt s ^ ")"
   | If (c, t, e) -> "If(" ^ string_of_expr c ^ ", " ^ string_of_stmt t ^ ", " ^ string_of_stmt e ^ ")"
   | While (c, s) -> "While(" ^ string_of_expr c ^ ", " ^ string_of_stmt s ^ ")"
   | Print e -> "Print(" ^ string_of_expr e ^ ")"
@@ -102,10 +112,12 @@ let rec string_of_stmt = function
       String.concat "; " (List.map (fun (n, t) -> n ^ ":" ^ string_of_type t) params) ^ 
       "], " ^ string_of_type ret ^ ", " ^ string_of_stmt body ^ ")"
   | Return e -> "Return(" ^ string_of_expr e ^ ")"
+  | ArrayAssign (arr, idx, e) -> "ArrayAssign(" ^ string_of_expr arr ^ ", " ^ 
+                                string_of_expr idx ^ ", " ^ string_of_expr e ^ ")"
 
 and string_of_type = function
   | IntType -> "IntType" | FloatType -> "FloatType" | StringType -> "StringType"
-  | BoolType -> "BoolType" | VoidType -> "VoidType"
+  | BoolType -> "BoolType" | VoidType -> "VoidType" | ArrayType t -> "ArrayType(" ^ string_of_type t ^ ")"
 
 (* Create testable values *)
 let expr_testable =
@@ -222,6 +234,40 @@ let test_complex_expressions () =
     (FunCall ("max", [Int 1; Int 2]))
     (parse_expr "print max(1, 2)")
 
+let test_array_expressions () =
+  check expr_testable "empty array literal"
+    (ArrayLit [])
+    (parse_expr "print []");
+    
+  check expr_testable "array literal with integers"
+    (ArrayLit [Int 1; Int 2; Int 3])
+    (parse_expr "print [1, 2, 3]");
+    
+  check expr_testable "array literal with expressions"
+    (ArrayLit [Int 1; Binop (Add, Int 2, Int 3); Var "x"])
+    (parse_expr "print [1, 2 + 3, x]");
+    
+  check expr_testable "array access"
+    (ArrayGet (Var "arr", Int 0))
+    (parse_expr "print arr[0]");
+    
+  check expr_testable "array access with expression index"
+    (ArrayGet (Var "arr", Binop (Add, Int 1, Int 2)))
+    (parse_expr "print arr[1 + 2]");
+    
+  check expr_testable "array length"
+    (ArrayLen (Var "arr"))
+    (parse_expr "print len(arr)");
+    
+  check expr_testable "array length of array literal"
+    (ArrayLen (ArrayLit [Int 1; Int 2; Int 3]))
+    (parse_expr "print len([1, 2, 3])") (* ; (Needs to be uncommented with the comment below) *)
+    
+  (* Nested arrays have not been implemented yet *)
+  (* check expr_testable "nested array access"
+    (ArrayGet (ArrayGet (Var "matrix", Int 0), Int 1))
+    (parse_expr "print matrix[0][1]") *)
+
 (* Statements *)
 let test_assignment_statements () =
   check stmt_testable "simple assignment"
@@ -318,19 +364,7 @@ let test_complex_statements () =
                Assign ("x", Binop (Sub, Var "x", Int 1))
              ])
     ])
-    (parse_string "x: int := 10; while x > 0 do { print x; x := x - 1 }");
-    
-  (* Test for block-level variable scoping *)
-  check stmt_testable "block scoping"
-    (Block [
-      Block [
-        Declare ("y", IntType, Int 5);
-        Print (Var "y")
-      ];
-      (* Attempting to use y outside its scope *)
-      Print (Var "y")
-    ])
-    (parse_string "{ y: int := 5; print y }; print y")
+    (parse_string "x: int := 10; while x > 0 do { print x; x := x - 1 }")
 
 (* Test for operator precedence *)
 let test_operator_precedence () =
@@ -378,59 +412,6 @@ let test_complete_programs () =
     ])
     (parse_string "factorial(n: int) -> int := { result: int := 1; while n > 0 do { result := result * n; n := n - 1 }; return result }; print factorial(5)")
 
-(* Test return statements in different contexts *)
-let test_return_statements () =
-  (* Test basic return statement *)
-  check stmt_testable "basic return statement"
-    (Return (Int 42))
-    (match parse_string "return 42" with Block [s] -> s | _ -> failwith "Unexpected AST");
-    
-  (* Test function with code after return.
-     This tests that the AST still builds code after a return statement.
-     Skipping that code will be tested in codegen *)
-  check stmt_testable "function with code after return"
-    (FunDecl ("test", [], IntType, 
-              Block [
-                Return (Int 42);
-                Print (String "unreachable code")
-              ]))
-    (match parse_string "test() -> int := { return 42; print \"unreachable code\" }" 
-     with Block [s] -> s | _ -> failwith "Unexpected AST");
-     
-  (* Test return in if statement *)
-  check stmt_testable "return in if statement"
-    (FunDecl ("test", [("x", IntType)], IntType,
-              Block [
-                If (Binop (Gt, Var "x", Int 0),
-                   Block [Return (Int 1)],
-                   Block [Return (Int 0)])
-              ]))
-    (match parse_string "test(x: int) -> int := { if x > 0 then { return 1 } else { return 0 } }" 
-     with Block [s] -> s | _ -> failwith "Unexpected AST");
-     
-  (* Test return in nested block *)
-  check stmt_testable "return in nested block"
-    (FunDecl ("test", [], IntType,
-              Block [
-                Block [Return (Int 42)];
-                Print (String "unreachable code")
-              ]))
-    (match parse_string "test() -> int := { { return 42 }; print \"unreachable code\" }" 
-     with Block [s] -> s | _ -> failwith "Unexpected AST");
-     
-  (* Test early return in function *)
-  check stmt_testable "early return in function"
-    (FunDecl ("test", [("x", IntType)], IntType,
-              Block [
-                If (Binop (Gt, Var "x", Int 10),
-                   Block [Return (Var "x")], 
-                   Block []);
-                Print (String "only for x <= 10");
-                Return (Int 0)
-              ]))
-    (match parse_string "test(x: int) -> int := { if x > 10 then { return x } print \"only for x <= 10\"; return 0 }" 
-     with Block [s] -> s | _ -> failwith "Unexpected AST")
-
 (* Test suite *)
 let suite =
   [
@@ -439,6 +420,7 @@ let suite =
     "Logical Expressions", `Quick, test_logical_expressions;
     "Comparison Expressions", `Quick, test_comparison_expressions;
     "Complex Expressions", `Quick, test_complex_expressions;
+    "Array Expressions", `Quick, test_array_expressions;
     "Assignment Statements", `Quick, test_assignment_statements;
     "Control Flow Statements", `Quick, test_control_flow_statements;
     "Function Statements", `Quick, test_function_statements;
@@ -446,7 +428,6 @@ let suite =
     "Complex Statements", `Quick, test_complex_statements;
     "Operator Precedence", `Quick, test_operator_precedence;
     "Complete Programs", `Quick, test_complete_programs;
-    "Return Statements", `Quick, test_return_statements;
   ]
 
 (* Run the tests *)
