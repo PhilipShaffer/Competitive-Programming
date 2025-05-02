@@ -21,3 +21,9 @@
  (libraries
   Competitive_Programming.libraries
   alcotest))
+
+(test
+ (name test_codegen)
+ (libraries
+  Competitive_Programming.libraries
+  alcotest))
