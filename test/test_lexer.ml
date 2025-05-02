@@ -5,13 +5,12 @@ open Parser (* Need this for token types *)
 (* Add this function definition before the test cases *)
 let token_to_string = function
   | IF -> "IF" | THEN -> "THEN" | ELSE -> "ELSE" | PRINT -> "PRINT"
-  | WHILE -> "WHILE" | DO -> "DO" | IN -> "IN" | AND -> "AND" | OR -> "OR"
+  | WHILE -> "WHILE" | DO -> "DO" | AND -> "AND" | OR -> "OR"
   | NOT -> "NOT" | RETURN -> "RETURN" | ARROW -> "ARROW" | COMMA -> "COMMA"
   | VOIDTYPE -> "VOIDTYPE" | INTTYPE -> "INTTYPE" | FLOATTYPE -> "FLOATTYPE"
   | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE" | ASSIGN -> "ASSIGN"
   | LPAREN -> "LPAREN" | RPAREN -> "RPAREN" | LBRACE -> "LBRACE" | RBRACE -> "RBRACE"
   | SEMICOLON -> "SEMICOLON" | COLON -> "COLON" | EOF -> "EOF"
-  | LET -> "LET"
   | LBRACKET -> "LBRACKET" | RBRACKET -> "RBRACKET" | LEN -> "LEN"
   | ID s -> Printf.sprintf "ID(%s)" s
   | INT i -> Printf.sprintf "INT(%d)" i
@@ -38,7 +37,7 @@ let token_testable =
 (* Test cases *)
 let test_keywords () =
   check (list token_testable) "keywords"
-    [IF; THEN; ELSE; PRINT; WHILE; DO; IN; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
+    [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
     (lex_string "if then else print while do in and or not return void int float string bool")
 
 let test_operators () =
