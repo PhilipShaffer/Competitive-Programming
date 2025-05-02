@@ -298,7 +298,8 @@ let test_array_types () =
   let array_access = HArrayGet (
     HArrayLit ([HInt 1; HInt 2], ArrayType IntType),
     HInt 0, 
-    IntType
+    IntType,
+    true  (* bounds_checked *)
   ) in
   check value_type_testable "array access type" IntType (type_of_expr array_access);
   
@@ -323,8 +324,8 @@ let test_pp_array_operations () =
   
   (* Test array access printing *)
   check string "print array access" 
-    "HArrayGet(HVar(0:int[]), HInt(0), int)" 
-    (pp_hir_expr (HArrayGet (HVar (0, ArrayType IntType), HInt 0, IntType)));
+    "HArrayGet(HVar(0:int[]), HInt(0), int, false)" 
+    (pp_hir_expr (HArrayGet (HVar (0, ArrayType IntType), HInt 0, IntType, false)));
   
   (* Test array length printing *)
   check string "print array length" 
