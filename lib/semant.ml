@@ -24,6 +24,28 @@ let sym_table_ids = Hashtbl.create 256
 let sym_of_name name =
   try Hashtbl.find sym_table_ids name with Not_found -> let sid = fresh_symbol () in Hashtbl.add sym_table_ids name sid; sid
 
+(* Helper: update array size in symbol table *)
+let update_array_size tbls arr_name size_increment =
+  match tbls with
+  | [] -> ()
+  | _ ->
+    let rec update_in_scopes scopes =
+      match scopes with
+      | [] -> ()
+      | tbl :: rest ->
+          try 
+            let current_info = Hashtbl.find tbl arr_name in
+            match current_info with
+            | SymVar (ArrayType elem_type, Some size) ->
+                Hashtbl.replace tbl arr_name (SymVar (ArrayType elem_type, Some (size + size_increment)))
+            | SymVar (ArrayType _, None) ->
+                (* If no size was tracked, we can't update it *)
+                ()
+            | _ -> ()
+          with Not_found -> update_in_scopes rest
+    in
+    update_in_scopes tbls
+
 (* Lookup symbol in the stack of scopes *)
 let rec lookup_symbol tbls name =
   match tbls with
