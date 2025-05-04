@@ -24,6 +24,28 @@ let sym_table_ids = Hashtbl.create 256
 let sym_of_name name =
   try Hashtbl.find sym_table_ids name with Not_found -> let sid = fresh_symbol () in Hashtbl.add sym_table_ids name sid; sid
 
+(* Helper: update array size in symbol table *)
+let update_array_size tbls arr_name size_increment =
+  match tbls with
+  | [] -> ()
+  | _ ->
+    let rec update_in_scopes scopes =
+      match scopes with
+      | [] -> ()
+      | tbl :: rest ->
+          try 
+            let current_info = Hashtbl.find tbl arr_name in
+            match current_info with
+            | SymVar (ArrayType elem_type, Some size) ->
+                Hashtbl.replace tbl arr_name (SymVar (ArrayType elem_type, Some (size + size_increment)))
+            | SymVar (ArrayType _, None) ->
+                (* If no size was tracked, we can't update it *)
+                ()
+            | _ -> ()
+          with Not_found -> update_in_scopes rest
+    in
+    update_in_scopes tbls
+
 (* Lookup symbol in the stack of scopes *)
 let rec lookup_symbol tbls name =
   match tbls with
@@ -107,6 +129,30 @@ let rec analyze_stmt (tbls : symbol_table) (stmt : Ast.stmt) : Hir.hir_stmt =
       | ArrayType elem_type when elem_type = val_type -> HArrayAssign (harr, hidx, hval, bounds_checked)
       | ArrayType _ -> raise (Semantic_error "Type mismatch in array assignment")
       | _ -> raise (Semantic_error "Cannot index non-array type"))
+  | ArrayPut (arr, value) ->
+      let harr, arr_type = analyze_expr tbls arr in
+      let hval, val_type = analyze_expr tbls value in
+      (match arr_type, arr with
+      | ArrayType elem_type, Var arr_name when elem_type = val_type -> 
+          (* Update the array size in the symbol table when using put *)
+          update_array_size tbls arr_name 1;
+          HArrayPut (harr, hval)
+      | ArrayType elem_type, _ when elem_type = val_type -> 
+          (* For non-variable arrays (e.g., array literals), we can't update the symbol table *)
+          HArrayPut (harr, hval)
+      | ArrayType _, _ -> raise (Semantic_error "Type mismatch in put statement")
+      | _ -> raise (Semantic_error "Cannot put to non-array type"))
+  | ArrayPop arr ->
+      let harr, arr_type = analyze_expr tbls arr in
+      (match arr_type, arr with
+      | ArrayType _, Var arr_name ->
+          (* Update the array size in the symbol table when using pop *)
+          update_array_size tbls arr_name (-1);
+          HArrayPop harr
+      | ArrayType _, _ -> 
+          (* For non-variable arrays, we can't update the symbol table *)
+          HArrayPop harr
+      | _ -> raise (Semantic_error "Cannot pop from non-array type"))
   | Declare (x, t, e) ->
       let sym = fresh_symbol () in
       Hashtbl.replace sym_table_ids x sym;
@@ -264,5 +310,3 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
             raise (Semantic_error ("Type mismatch in function call: " ^ fname));
           (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
       | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
-
-(* Removed duplicate definition of sym_table_ids and sym_of_name *)

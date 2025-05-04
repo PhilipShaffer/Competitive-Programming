@@ -24,6 +24,8 @@ type hir_expr =
 and hir_stmt =
   | HAssign of hir_symbol * hir_expr
   | HArrayAssign of hir_expr * hir_expr * hir_expr * bool  (** Array assignment: arr[idx] = value, bounds_checked flag *)
+  | HArrayPut of hir_expr * hir_expr  (** Put statement: put(arr, value) *)
+  | HArrayPop of hir_expr  (** Pop statement: pop(arr) *)
   | HDeclare of hir_symbol * value_type * hir_expr
   | HIf of hir_expr * hir_stmt * hir_stmt
   | HWhile of hir_expr * hir_stmt

@@ -11,7 +11,7 @@ let token_to_string = function
   | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE" | ASSIGN -> "ASSIGN"
   | LPAREN -> "LPAREN" | RPAREN -> "RPAREN" | LBRACE -> "LBRACE" | RBRACE -> "RBRACE"
   | SEMICOLON -> "SEMICOLON" | COLON -> "COLON" | EOF -> "EOF"
-  | LBRACKET -> "LBRACKET" | RBRACKET -> "RBRACKET" | LEN -> "LEN"
+  | LBRACKET -> "LBRACKET" | RBRACKET -> "RBRACKET" | LEN -> "LEN" | PUT -> "PUT" | POP -> "POP"
   | ID s -> Printf.sprintf "ID(%s)" s
   | INT i -> Printf.sprintf "INT(%d)" i
   | STRING s -> Printf.sprintf "STRING(%s)" s
@@ -37,8 +37,8 @@ let token_testable =
 (* Test cases *)
 let test_keywords () =
   check (list token_testable) "keywords"
-    [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
-    (lex_string "if then else print while do and or not return void int float string bool")
+    [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; LEN; PUT; POP; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
+    (lex_string "if then else print while do and or not len put pop return void int float string bool")
 
 let test_operators () =
   check (list token_testable) "operators"
@@ -106,6 +106,19 @@ let test_array_expressions () =
      ID "l"; ASSIGN; LEN; ID "arr"]
     (lex_string "arr := [1, 2, 3]; x := arr[0]; l := len arr")
 
+let test_array_put_and_pop () =
+  check (list token_testable) "array put and pop operations"
+    [PUT; ID "arr"; COMMA; INT 42; SEMICOLON;
+     POP; ID "arr"; SEMICOLON;
+     ID "x"; ASSIGN; PUT; ID "arr"; COMMA; ID "value"; SEMICOLON;
+     ID "y"; ASSIGN; POP; ID "arr"]
+    (lex_string "put arr, 42; pop arr; x := put arr, value; y := pop arr")
+
+let test_len () =
+  check (list token_testable) "len"
+    [LEN; ID "arr"; SEMICOLON]
+    (lex_string "len arr;")
+
 (* Test suite *)
 let suite =
   [
@@ -122,6 +135,8 @@ let suite =
     "Edge Case Numbers", `Quick, test_edge_case_numbers;
     "Array Tokens", `Quick, test_array_tokens;
     "Array Expressions", `Quick, test_array_expressions;
+    "Array Put and Pop Operations", `Quick, test_array_put_and_pop;
+    "Len", `Quick, test_len;
   ]
 
 (* Run the tests *)

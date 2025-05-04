@@ -13,6 +13,9 @@ dune build
 echo "Running compiler on $TEST_FILE..."
 dune exec compiler "$TEST_FILE"
 
+# The memcpy alignment is now properly handled in the compiler code
+# No need for sed post-processing anymore
+
 echo "Compiling generated LLVM IR..."
 clang output.ll -o program
 

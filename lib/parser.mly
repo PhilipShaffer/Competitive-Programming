@@ -35,7 +35,7 @@
 
 (* Array-related tokens *)
 %token LBRACKET RBRACKET
-%token LEN
+%token PUT POP LEN
 
 (* Precedence and associativity declarations - lower lines have higher precedence *)
 (* These declarations help resolve ambiguities in the grammar *)
@@ -68,11 +68,8 @@ expr:
   | x = ID                       { Var x }                 (* Variable reference *)
   | i = INT                      { Int i }                 (* Integer literal *)
   | b = BOOL                     { Bool b }                (* Boolean literal *)
-  | str = STRING                 { String str }
-  | f = FLOAT                    { Float f }
-  | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }  (* Array literal *)
-  | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }  (* Array access *)
-  | LEN; LPAREN; arr = expr; RPAREN { ArrayLen arr }  (* Array length *)
+  | str = STRING                 { String str }            (* String literal *)
+  | f = FLOAT                    { Float f }               (* Float literal *)
   | e1 = expr; PLUS;  e2 = expr  { Binop (Add, e1, e2) }   (* Addition: e1 + e2 *)
   | e1 = expr; MINUS; e2 = expr  { Binop (Sub, e1, e2) }   (* Subtraction: e1 - e2 *)
   | e1 = expr; MULT;  e2 = expr  { Binop (Mult, e1, e2) }  (* Multiplication: e1 * e2 *)
@@ -89,6 +86,9 @@ expr:
   | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
   | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
+  | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }     (* Array literal *)
+  | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }              (* Array access *)
+  | LEN; LPAREN; arr = expr; RPAREN { ArrayLen arr }       (* Array length *)
   ;
 
 (* Statement rules - define how statements are parsed *)
@@ -96,18 +96,20 @@ stmt:
   | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
   | RETURN; e = expr { Return e }  (* Return statement *)
   | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
-  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }         (* Assignment: x := e *)
-  | x = ID;   COLON;   t = type_expr;     ASSIGN; e = expr { Declare (x, t, e) }  (* Typed variable declaration: x: t := e *)
+  | PUT; LPAREN; arr = expr; COMMA; value = expr; RPAREN  { ArrayPut(arr, value) }   (* Array put: put(arr, value) *)
+  | POP; LPAREN; arr = expr; RPAREN                       { ArrayPop arr }           (* Array pop: pop(arr) *)
+  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }          (* Assignment: x := e *)
+  | x = ID;   COLON;   t = type_expr;    ASSIGN; e = expr { Declare (x, t, e) }      (* Typed variable declaration: x: t := e *)
   | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
-  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE { If (e, Block s, Block []) }  (* Conditional: if e then { ... } *)
-  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }          (* Loop: while e do s *)
-  | PRINT;  e = expr                                      { Print e }               (* Print statement: print e *)
-  | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }              (* Block: { s1; s2; ...; sn; } *)
+  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE     { If (e, Block s, Block []) }                (* Conditional: if e then { ... } *)
+  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }           (* Loop: while e do s *)
+  | PRINT;  e = expr                                      { Print e }                (* Print statement: print e *)
+  | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }               (* Block: { s1; s2; ...; sn; } *)
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)
 stmt_list:
-  | s = stmt;                           { [s] }     (* Single statement *)
+  | s = stmt;                           { [s] }      (* Single statement *)
   | s = stmt; SEMICOLON?; sl = stmt_list { s :: sl } (* Multiple statements: s1; s2; ...; sn; with optional semicolons *)
   ;
 
