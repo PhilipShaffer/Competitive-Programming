@@ -17,15 +17,76 @@ let context = global_context ()
 let the_module = create_module context "PigletJIT"
 let builder = builder context
 
-(* No helper function needed as we're taking a more direct approach *)
+(* Helper functions for array memory management *)
 
 (* Declare external printf function *) 
 let printf_ty = var_arg_function_type (i32_type context) [| pointer_type context |]
 let printf_func = declare_function "printf" printf_ty the_module
 
-(* Declare malloc *)
+(* Declare malloc and free for memory management *)
 let malloc_ty = function_type (pointer_type context) [| i64_type context |]
 let malloc_func = declare_function "malloc" malloc_ty the_module
+let free_ty = function_type (void_type context) [| pointer_type context |]
+let free_func = declare_function "free" free_ty the_module
+
+(* LLVM memcpy declaration - use standard LLVM intrinsic *)
+let memcpy_ty = function_type (void_type context) 
+  [| pointer_type context; (* dst *)
+     pointer_type context; (* src *)
+     i64_type context;    (* size *)
+     i1_type context      (* isvolatile *)
+  |]
+let memcpy_func = declare_function "llvm.memcpy.p0.p0.i64" memcpy_ty the_module
+
+(* Load an array pointer handling both variable and non-variable cases *)
+let load_array_ptr (arr_val : llvalue) (arr : hir_expr) (builder : llbuilder) : llvalue =
+  match arr with
+  | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
+  | _ -> arr_val
+
+(* Extract array metadata (length pointer, data pointer, and length value) from an array pointer *)
+let get_array_metadata (array_ptr : llvalue) (builder : llbuilder) : llvalue * llvalue * llvalue =
+  (* Get the length pointer *)
+  let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+  (* Load the length value *)
+  let length = build_load (i64_type context) length_ptr "array_length" builder in
+  (* Calculate pointer to the data part (after the length field) *)
+  let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
+  let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+  
+  (length, length_ptr, data_ptr_cast)
+
+(* Create a new array in memory with given capacity *)
+let create_array_with_capacity (length_value : llvalue) (builder : llbuilder) : llvalue * llvalue * llvalue =
+  (* Calculate array size (8 bytes for length + element_size * capacity) *)
+  let elem_size = 8 (* All our types use 64 bits/8 bytes in this implementation *) in
+  let array_size = build_add 
+    (const_int (i64_type context) 8) 
+    (build_mul length_value (const_int (i64_type context) elem_size) "elements_size" builder)
+    "array_size" builder in
+  
+  (* Allocate memory *)
+  let array_mem = build_call malloc_ty malloc_func [| array_size |] "array_malloc" builder in
+  let array_ptr = build_pointercast array_mem (pointer_type context) "array_ptr" builder in
+  
+  (* Store length at the beginning *)
+  let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+  ignore (build_store length_value length_ptr builder);
+  
+  (* Calculate pointer to the data part *)
+  let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
+  let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+  
+  (array_ptr, length_ptr, data_ptr_cast)
+
+(* Copy array data using memcpy *)
+let copy_array_data (dst_ptr : llvalue) (src_ptr : llvalue) (size_bytes : llvalue) (builder : llbuilder) : unit =
+  ignore (build_call memcpy_ty memcpy_func [|
+    dst_ptr;
+    src_ptr;
+    size_bytes;
+    const_int (i1_type context) 0   (* not volatile *)
+  |] "" builder)
 
 (* Symbol table: list of hashtables mapping HIR sym (int) -> LLVM value *) 
 (* The list represents scopes, with the head being the current scope *) 
@@ -77,22 +138,23 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
          We'll create a struct { size_t length; element_type data[]; }
          This keeps the array length with the array pointer for bounds checking *)
       
-      (* First, allocate memory for length + elements 
-         (8 bytes for length + element_size * length) *)
-      let elem_size = 8 (* All our types use 64 bits/8 bytes in this implementation *) in
-      let array_size = const_int (i64_type context) (8 + (length * elem_size)) in
-      let array_mem = build_call malloc_ty malloc_func [| array_size |] "array_malloc" builder in
+      (* Create an array with initial capacity equals to length + a little extra - factor of 1.25 *)
+      (* This gives us immediate room for a few puts without reallocating *)
+      let initial_capacity = 
+        if length = 0 then
+          const_int (i64_type context) 2  (* Default minimum capacity for empty arrays *)
+        else
+          let base_capacity = const_int (i64_type context) length in
+          build_add base_capacity 
+            (build_sdiv base_capacity (const_int (i64_type context) 4) "capacity_buffer" builder)
+            "initial_capacity" builder
+      in
       
-      (* Cast to appropriate pointer type *)
-      let array_ptr = build_pointercast array_mem (pointer_type context) "array_ptr" builder in
+      (* Create a new array with the calculated capacity *)
+      let (array_ptr, length_ptr, data_ptr_cast) = create_array_with_capacity initial_capacity builder in
       
-      (* Store length at the beginning *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      (* Store the actual length (not capacity) *)
       ignore (build_store (const_int (i64_type context) length) length_ptr builder);
-      
-      (* Calculate pointer to the first element (after the length) *)
-      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
-      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
       
       (* Store elements *)
       List.iteri elems ~f:(fun i elem ->
@@ -109,19 +171,11 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
       let idx_val = codegen_expr tables idx in
       let elem_ty = llvm_type_of ty in
       
-      (* Load the array pointer from the array variable *)
-      let array_ptr = 
-        match arr with
-        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
-        | _ -> arr_val
-      in
+      (* Load the array pointer using our helper function *)
+      let array_ptr = load_array_ptr arr_val arr builder in
       
-      (* Get array length for bounds checking and for computing data pointer *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
-      
-      (* Calculate pointer to the data part (after the length field) *)
-      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
-      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+      (* Get array metadata using our helper function - we just need length and data pointer *)
+      let (length, _, data_ptr_cast) = get_array_metadata array_ptr builder in
       
       if bounds_checked then
         (* Skip runtime bounds checking if already verified at compile time *)
@@ -129,9 +183,6 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
         build_load elem_ty elem_ptr "elem_load" builder
       else
         (* Need runtime bounds checking *)
-        let length = build_load (i64_type context) length_ptr "array_length" builder in
-        
-        (* Add bounds checking *)
         (* First check if index is negative *)
         let zero = const_int (i64_type context) 0 in
         let is_negative = build_icmp Llvm.Icmp.Slt idx_val zero "is_negative" builder in
@@ -151,19 +202,29 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
         (* Branch based on bounds check *)
         ignore (build_cond_br is_out_of_bounds out_of_bounds_block in_bounds_block builder);
         
-        (* Set up out of bounds block with error message *)
+        (* Set up out of bounds block with improved, more actionable error message *)
         position_at_end out_of_bounds_block builder;
+                
+        (* Create formatted error messages for different cases *)
+        let negative_err_msg = 
+          build_global_stringptr "[Error] Array index out of bounds: negative index %lld is invalid. Array indices must be >= 0.\n" 
+            "negative_idx_err_msg" builder in
         
-        (* Create formatted error message that shows the index and array length *)
-        let idx_ptr = build_alloca (i64_type context) "idx_ptr" builder in
-        ignore (build_store idx_val idx_ptr builder);
-        let length_val_ptr = build_alloca (i64_type context) "length_val_ptr" builder in
-        ignore (build_store length length_val_ptr builder);
+        let bounds_err_msg = 
+          build_global_stringptr "[Error] Array index out of bounds: index %lld exceeds array length %lld. Valid indices are 0-%lld.\n" 
+            "bounds_err_msg" builder in
         
-        let err_msg = build_global_stringptr "[Codegen] Array index out of bounds: index %lld, array length %lld\n" "bounds_err_msg" builder in
+        (* Use a PHI node to select the right error message based on the condition *)
+        let is_negative_bool = build_icmp Llvm.Icmp.Ne is_negative (const_int (i1_type context) 0) "is_negative_bool" builder in
         
-        (* Print error message with index and length values *)
-        ignore (build_call printf_ty printf_func [| err_msg; idx_val; length |] "print_error" builder);
+        (* Print appropriate error message based on the condition *)
+        let max_idx = build_sub length (const_int (i64_type context) 1) "max_idx" builder in
+        ignore (build_call printf_ty printf_func [| 
+          build_select is_negative_bool negative_err_msg bounds_err_msg "err_msg" builder;
+          idx_val;
+          length;
+          max_idx
+        |] "print_error" builder);
         
         (* Exit with error code *)
         let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
@@ -180,20 +241,14 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
   | HArrayLen arr ->
       let arr_val = codegen_expr tables arr in
       
-      (* For our C-compatible array implementation:
-         We stored the length at the beginning of the allocated memory
-         So we need to load this value *)
-      let array_ptr = 
-        match arr with
-        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
-        | _ -> arr_val
-      in
+      (* Load the array pointer using our helper function *)
+      let array_ptr = load_array_ptr arr_val arr builder in
       
-      (* Cast to int64 pointer to access the length field *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      (* Get array metadata - we only need the length value *)
+      let (length, _, _) = get_array_metadata array_ptr builder in
       
-      (* Load and return the length value *)
-      build_load (i64_type context) length_ptr "array_length" builder
+      (* Return the length value directly *)
+      length
 
   | HBinop (op, e1, e2, _ty) ->
       let lhs = codegen_expr tables e1 in
@@ -305,15 +360,11 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       let value_val = codegen_expr tables value in
       let elem_ty = type_of value_val in
       
-      (* First, explicitly load the array pointer from the array variable *)
-      let array_ptr = build_load (pointer_type context) arr_val "array_ptr_load" builder in
+      (* Load the array pointer using our helper function *)
+      let array_ptr = load_array_ptr arr_val arr builder in
       
-      (* Get length pointer for data pointer calculation *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
-      
-      (* Calculate pointer to the first element (after the length) *)
-      let data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "data_ptr" builder in
-      let data_ptr_cast = build_bitcast data_ptr (pointer_type context) "data_ptr_cast" builder in
+      (* Get array metadata using our helper function - we just need length and data pointer *)
+      let (length, _, data_ptr_cast) = get_array_metadata array_ptr builder in
       
       if bounds_checked then
         (* Skip runtime bounds checking if already verified at compile time *)
@@ -322,14 +373,11 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
         None
       else
         (* Need runtime bounds checking *)
-        (* Get length for bounds checking *)
-        let length = build_load (i64_type context) length_ptr "array_length" builder in
-        
-        (* Add bounds checking - compare with array length *)
         (* First check if index is negative *)
         let zero = const_int (i64_type context) 0 in
         let is_negative = build_icmp Llvm.Icmp.Slt idx_val zero "is_negative" builder in
         
+        (* Check if index >= length *)
         let is_too_large = build_icmp Llvm.Icmp.Sge idx_val length "is_too_large" builder in
         let is_out_of_bounds = build_or is_negative is_too_large "is_out_of_bounds" builder in
         
@@ -342,12 +390,31 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
         (* Branch based on bounds check *)
         ignore (build_cond_br is_out_of_bounds out_of_bounds_block in_bounds_block builder);
         
-        (* Set up out of bounds block with error message *)
+        (* Set up out of bounds block with improved error message *)
         position_at_end out_of_bounds_block builder;
-        let err_msg = build_global_stringptr "[Codegen] Array index out of bounds in assignment: index %lld, array length %lld\n" "assign_bounds_err_msg" builder in
         
-        (* Print error message and exit with error code *)
-        ignore (build_call printf_ty printf_func [| err_msg; idx_val; length |] "print_assign_error" builder);
+        (* Create formatted error messages for different cases *)
+        let negative_err_msg = 
+          build_global_stringptr "[Error] Array index out of bounds in assignment: negative index %lld is invalid. Array indices must be >= 0.\n" 
+            "negative_idx_assign_err_msg" builder in
+        
+        let bounds_err_msg = 
+          build_global_stringptr "[Error] Array index out of bounds in assignment: index %lld exceeds array length %lld. Valid indices are 0-%lld.\n" 
+            "assign_bounds_err_msg" builder in
+        
+        (* Use a PHI node to select the right error message based on the condition *)
+        let is_negative_bool = build_icmp Llvm.Icmp.Ne is_negative (const_int (i1_type context) 0) "is_negative_bool" builder in
+        
+        (* Print appropriate error message based on the condition *)
+        let max_idx = build_sub length (const_int (i64_type context) 1) "max_idx" builder in
+        ignore (build_call printf_ty printf_func [| 
+          build_select is_negative_bool negative_err_msg bounds_err_msg "err_msg" builder;
+          idx_val;
+          length;
+          max_idx
+        |] "print_assign_error" builder);
+        
+        (* Exit with error code *)
         let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
         ignore (build_call (function_type (void_type context) [| i32_type context |]) exit_func [| const_int (i32_type context) 1 |] "" builder);
         ignore (build_unreachable builder);
@@ -367,62 +434,48 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       let value_ty = type_of value_val in
       
       (* Load the array pointer *)
-      let array_ptr = 
-        match arr with
-        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
-        | _ -> arr_val
-      in
+      let array_ptr = load_array_ptr arr_val arr builder in
       
-      (* Get current array length *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
-      let current_length = build_load (i64_type context) length_ptr "current_length" builder in
+      (* Get array metadata *)
+      let (current_length, length_ptr, data_ptr_cast) = get_array_metadata array_ptr builder in
+      
+      (* Growth factor for capacity (1.5x) - for efficient reallocation *)
+      let growth_factor = const_int (i64_type context) 3 in
+      let growth_divisor = const_int (i64_type context) 2 in
       
       (* Calculate new length = current_length + 1 *)
       let new_length = build_add current_length (const_int (i64_type context) 1) "new_length" builder in
       
-      (* Calculate size for new array (8 bytes for length + element_size * new_length) *)
-      let elem_size = 8 (* All our types use 64 bits/8 bytes *) in
-      let new_array_size = build_add 
-        (const_int (i64_type context) 8) 
-        (build_mul new_length (const_int (i64_type context) elem_size) "elements_size" builder)
-        "array_size" builder in
+      (* Calculate new capacity with growth factor: max(new_length, current_capacity * 1.5) *)
+      (* We store actual length in array, but allocate with larger capacity *)
+      let min_capacity = new_length in
+      let current_capacity = build_load (i64_type context) length_ptr "current_capacity" builder in
+      let grown_capacity = build_sdiv 
+        (build_mul current_capacity growth_factor "capacity_times_3" builder) 
+        growth_divisor 
+        "capacity_times_1.5" builder in
       
-      (* Allocate new memory *)
-      let new_array_mem = build_call malloc_ty malloc_func [| new_array_size |] "new_array_malloc" builder in
-      let new_array_ptr = build_pointercast new_array_mem (pointer_type context) "new_array_ptr" builder in
+      (* Choose larger of min_capacity and grown_capacity *)
+      let is_min_larger = build_icmp Llvm.Icmp.Sgt min_capacity grown_capacity "is_min_larger" builder in
+      let new_capacity = build_select is_min_larger min_capacity grown_capacity "new_capacity" builder in
       
-      (* Store new length *)
-      let new_length_ptr = build_bitcast new_array_ptr (pointer_type context) "new_length_ptr" builder in
+      (* Create a new array with the calculated capacity *)
+      let (new_array_ptr, new_length_ptr, new_data_ptr_cast) = create_array_with_capacity new_capacity builder in
+      
+      (* Store the actual length (not capacity) at the beginning *)
       ignore (build_store new_length new_length_ptr builder);
       
-      (* Calculate data pointers for old and new array *)
-      let old_data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "old_data_ptr" builder in
-      let new_data_ptr = build_gep (i64_type context) new_length_ptr [| const_int (i64_type context) 1 |] "new_data_ptr" builder in
-      
-      (* Cast to appropriate pointer types *)
-      let old_data_ptr_cast = build_bitcast old_data_ptr (pointer_type context) "old_data_ptr_cast" builder in
-      let new_data_ptr_cast = build_bitcast new_data_ptr (pointer_type context) "new_data_ptr_cast" builder in
-      
-      (* Copy existing elements - memcpy the old array data to the new array *)
-      let memcpy_ty = function_type (void_type context) [| 
-        pointer_type context; (* dst *)
-        pointer_type context; (* src *)
-        i64_type context;    (* size *)
-        i1_type context      (* isvolatile - can be false *)
-      |] in
-      let memcpy_func = declare_function "llvm.memcpy.p0.p0.i64" memcpy_ty the_module in
+      (* Copy existing elements using our aligned memcpy helper *)
+      let elem_size = 8 (* All our types use 64 bits/8 bytes *) in
       let bytes_to_copy = build_mul current_length (const_int (i64_type context) elem_size) "bytes_to_copy" builder in
-      
-      ignore(build_call memcpy_ty memcpy_func [|
-        new_data_ptr_cast;
-        old_data_ptr_cast;
-        bytes_to_copy;
-        const_int (i1_type context) 0   (* not volatile *)
-      |] "" builder);
+      copy_array_data new_data_ptr_cast data_ptr_cast bytes_to_copy builder;
       
       (* Store the new value at the end of the array *)
       let last_elem_ptr = build_gep value_ty new_data_ptr_cast [| current_length |] "last_elem_ptr" builder in
       ignore (build_store value_val last_elem_ptr builder);
+      
+      (* Free the old array memory to prevent leaks - don't name void returns *)
+      ignore (build_call free_ty free_func [| array_ptr |] "" builder);
       
       (* Store the new array pointer back to the array variable *)
       ignore (build_store new_array_ptr arr_val builder);
@@ -433,15 +486,10 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       let arr_val = codegen_expr tables arr in
       
       (* Load the array pointer *)
-      let array_ptr = 
-        match arr with
-        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
-        | _ -> arr_val
-      in
+      let array_ptr = load_array_ptr arr_val arr builder in
       
-      (* Get current array length *)
-      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
-      let current_length = build_load (i64_type context) length_ptr "current_length" builder in
+      (* Get array metadata *)
+      let (current_length, length_ptr, data_ptr_cast) = get_array_metadata array_ptr builder in
       
       (* Create blocks for bounds checking - can't pop from empty array *)
       let current_block = insertion_block builder in
@@ -454,9 +502,9 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       let is_empty = build_icmp Llvm.Icmp.Eq current_length (const_int (i64_type context) 0) "is_empty" builder in
       ignore (build_cond_br is_empty empty_array_block valid_pop_block builder);
       
-      (* Handle empty array case *)
+      (* Handle empty array case with improved error message *)
       position_at_end empty_array_block builder;
-      let err_msg = build_global_stringptr "[Codegen] Cannot pop from empty array\n" "empty_arr_err_msg" builder in
+      let err_msg = build_global_stringptr "[Error] Cannot pop from empty array. Check array length before popping.\n" "empty_arr_err_msg" builder in
       ignore (build_call printf_ty printf_func [| err_msg |] "print_empty_error" builder);
       let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
       ignore (build_call (function_type (void_type context) [| i32_type context |]) exit_func [| const_int (i32_type context) 1 |] "" builder);
@@ -468,46 +516,40 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
       (* Calculate new length = current_length - 1 *)
       let new_length = build_sub current_length (const_int (i64_type context) 1) "new_length" builder in
       
-      (* Calculate size for new array (8 bytes for length + element_size * new_length) *)
-      let elem_size = 8 in
-      let new_array_size = build_add 
-        (const_int (i64_type context) 8) 
-        (build_mul new_length (const_int (i64_type context) elem_size) "elements_size" builder)
-        "array_size" builder in
+      (* For efficiency, keep the same capacity if we're not shrinking too much 
+         If array size is less than half capacity, shrink to capacity*0.75 *)
+      let current_capacity = build_load (i64_type context) length_ptr "current_capacity" builder in
+      let half_capacity = build_sdiv current_capacity (const_int (i64_type context) 2) "half_capacity" builder in
       
-      (* Allocate new memory *)
-      let new_array_mem = build_call malloc_ty malloc_func [| new_array_size |] "new_array_malloc" builder in
-      let new_array_ptr = build_pointercast new_array_mem (pointer_type context) "new_array_ptr" builder in
+      (* Check if we need to shrink *)
+      let should_shrink = build_icmp Llvm.Icmp.Slt new_length half_capacity "should_shrink" builder in
       
-      (* Store new length *)
-      let new_length_ptr = build_bitcast new_array_ptr (pointer_type context) "new_length_ptr" builder in
+      (* If we shrink, go to 0.75 of capacity *)
+      let reduced_capacity = build_sdiv 
+        (build_mul current_capacity (const_int (i64_type context) 3) "capacity_times_3" builder)
+        (const_int (i64_type context) 4) 
+        "capacity_times_0.75" builder in
+        
+      (* Choose max of new_length and reduced_capacity if shrinking, or keep current capacity *)
+      let is_new_length_larger = build_icmp Llvm.Icmp.Sgt new_length reduced_capacity "is_new_length_larger" builder in
+      let shrink_capacity = build_select is_new_length_larger new_length reduced_capacity "shrink_capacity" builder in
+      let new_capacity = build_select should_shrink shrink_capacity current_capacity "new_capacity" builder in
+      
+      (* Create a new array with the new capacity *)
+      let (new_array_ptr, new_length_ptr, new_data_ptr_cast) = create_array_with_capacity new_capacity builder in
+      
+      (* Store the actual new length at the beginning (not the capacity) *)
       ignore (build_store new_length new_length_ptr builder);
       
-      (* Calculate data pointers for old and new array *)
-      let old_data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "old_data_ptr" builder in
-      let new_data_ptr = build_gep (i64_type context) new_length_ptr [| const_int (i64_type context) 1 |] "new_data_ptr" builder in
-      
-      (* Cast to appropriate pointer types *)
-      let old_data_ptr_cast = build_bitcast old_data_ptr (pointer_type context) "old_data_ptr_cast" builder in
-      let new_data_ptr_cast = build_bitcast new_data_ptr (pointer_type context) "new_data_ptr_cast" builder in
-      
       (* Copy only the N-1 elements - don't include the last element *)
+      let elem_size = 8 in
       let bytes_to_copy = build_mul new_length (const_int (i64_type context) elem_size) "bytes_to_copy" builder in
       
-      let memcpy_ty = function_type (void_type context) [| 
-        pointer_type context; (* dst *)
-        pointer_type context; (* src *)
-        i64_type context;    (* size *)
-        i1_type context      (* isvolatile - can be false *)
-      |] in
-      let memcpy_func = declare_function "llvm.memcpy.p0.p0.i64" memcpy_ty the_module in
+      (* Use our helper to copy with the proper alignment *)
+      copy_array_data new_data_ptr_cast data_ptr_cast bytes_to_copy builder;
       
-      ignore (build_call memcpy_ty memcpy_func [|
-        new_data_ptr_cast;
-        old_data_ptr_cast;
-        bytes_to_copy;
-        const_int (i1_type context) 0   (* not volatile *)
-      |] "" builder);
+      (* Free the old array memory to prevent leaks - don't name void returns *)
+      ignore (build_call free_ty free_func [| array_ptr |] "" builder);
       
       (* Store the new array pointer back to the array variable *)
       ignore (build_store new_array_ptr arr_val builder);
