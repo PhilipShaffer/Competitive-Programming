@@ -16,6 +16,8 @@ let rec pp_hir_stmt (stmt : Hir.hir_stmt) : string =
   match stmt with
   | Hir.HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
   | Hir.HArrayAssign (arr, idx, value, checked) -> Printf.sprintf "HArrayAssign(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value) checked
+  | Hir.HArrayPut (arr, value) -> Printf.sprintf "HPut(%s, %s)" (pp_hir_expr arr) (pp_hir_expr value)
+  | Hir.HArrayPop arr -> Printf.sprintf "HPop(%s)" (pp_hir_expr arr)
   | Hir.HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
   | Hir.HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
   | Hir.HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)

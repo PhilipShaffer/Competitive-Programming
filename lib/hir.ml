@@ -23,6 +23,8 @@ type hir_expr =
 type hir_stmt =
   | HAssign of hir_symbol * hir_expr
   | HArrayAssign of hir_expr * hir_expr * hir_expr * bool  (* Array assignment: arr[idx] = value, bounds_checked flag *)
+  | HArrayPut of hir_expr * hir_expr  (* Put statement: put(arr, value) *)
+  | HArrayPop of hir_expr  (* Pop statement: pop(arr) *)
   | HDeclare of hir_symbol * value_type * hir_expr
   | HIf of hir_expr * hir_stmt * hir_stmt
   | HWhile of hir_expr * hir_stmt
@@ -52,6 +54,8 @@ let rec pp_hir_stmt (stmt : hir_stmt) : string =
   | HAssign (sym, expr) -> Printf.sprintf "HAssign(%d, %s)" sym (pp_hir_expr expr)
   | HArrayAssign (arr, idx, value, checked) -> 
       Printf.sprintf "HArrayAssign(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_hir_expr value) checked
+  | HArrayPut (arr, value) -> Printf.sprintf "HPut(%s, %s)" (pp_hir_expr arr) (pp_hir_expr value)
+  | HArrayPop arr -> Printf.sprintf "HPop(%s)" (pp_hir_expr arr)
   | HDeclare (sym, ty, expr) -> Printf.sprintf "HDeclare(%d, %s, %s)" sym (pp_ty ty) (pp_hir_expr expr)
   | HIf (cond, t, f) -> Printf.sprintf "HIf(%s, %s, %s)" (pp_hir_expr cond) (pp_hir_stmt t) (pp_hir_stmt f)
   | HWhile (cond, body) -> Printf.sprintf "HWhile(%s, %s)" (pp_hir_expr cond) (pp_hir_stmt body)

@@ -6,6 +6,12 @@ open Ast
 
 module StdHashtbl = Stdlib.Hashtbl
 
+(* Notes:
+ * - We use LLVM's i64 for all integer types, including bools.
+ * - We use LLVM's double for float types.
+ * - We use 8 bytes for all types in our arrays, which might be a problem for strings.
+ * - Notice that the function "pointer_type" automatically uses the correct pointer size for the target architecture, so we don't have to cast it.
+ *)
 
 let context = global_context ()
 let the_module = create_module context "PigletJIT"
@@ -353,6 +359,163 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
         let elem_ptr = build_gep elem_ty data_ptr_cast [| idx_val |] "elem_assign_ptr" builder in
         ignore (build_store value_val elem_ptr builder);
         None
+
+  | HArrayPut (arr, value) ->
+      (* Get the array pointer and value to put *)
+      let arr_val = codegen_expr tables arr in
+      let value_val = codegen_expr tables value in
+      let value_ty = type_of value_val in
+      
+      (* Load the array pointer *)
+      let array_ptr = 
+        match arr with
+        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
+        | _ -> arr_val
+      in
+      
+      (* Get current array length *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      let current_length = build_load (i64_type context) length_ptr "current_length" builder in
+      
+      (* Calculate new length = current_length + 1 *)
+      let new_length = build_add current_length (const_int (i64_type context) 1) "new_length" builder in
+      
+      (* Calculate size for new array (8 bytes for length + element_size * new_length) *)
+      let elem_size = 8 (* All our types use 64 bits/8 bytes *) in
+      let new_array_size = build_add 
+        (const_int (i64_type context) 8) 
+        (build_mul new_length (const_int (i64_type context) elem_size) "elements_size" builder)
+        "array_size" builder in
+      
+      (* Allocate new memory *)
+      let new_array_mem = build_call malloc_ty malloc_func [| new_array_size |] "new_array_malloc" builder in
+      let new_array_ptr = build_pointercast new_array_mem (pointer_type context) "new_array_ptr" builder in
+      
+      (* Store new length *)
+      let new_length_ptr = build_bitcast new_array_ptr (pointer_type context) "new_length_ptr" builder in
+      ignore (build_store new_length new_length_ptr builder);
+      
+      (* Calculate data pointers for old and new array *)
+      let old_data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "old_data_ptr" builder in
+      let new_data_ptr = build_gep (i64_type context) new_length_ptr [| const_int (i64_type context) 1 |] "new_data_ptr" builder in
+      
+      (* Cast to appropriate pointer types *)
+      let old_data_ptr_cast = build_bitcast old_data_ptr (pointer_type context) "old_data_ptr_cast" builder in
+      let new_data_ptr_cast = build_bitcast new_data_ptr (pointer_type context) "new_data_ptr_cast" builder in
+      
+      (* Copy existing elements - memcpy the old array data to the new array *)
+      let memcpy_ty = function_type (void_type context) [| 
+        pointer_type context; (* dst *)
+        pointer_type context; (* src *)
+        i64_type context;    (* size *)
+        i1_type context      (* isvolatile - can be false *)
+      |] in
+      let memcpy_func = declare_function "llvm.memcpy.p0.p0.i64" memcpy_ty the_module in
+      let bytes_to_copy = build_mul current_length (const_int (i64_type context) elem_size) "bytes_to_copy" builder in
+      
+      ignore(build_call memcpy_ty memcpy_func [|
+        new_data_ptr_cast;
+        old_data_ptr_cast;
+        bytes_to_copy;
+        const_int (i1_type context) 0   (* not volatile *)
+      |] "" builder);
+      
+      (* Store the new value at the end of the array *)
+      let last_elem_ptr = build_gep value_ty new_data_ptr_cast [| current_length |] "last_elem_ptr" builder in
+      ignore (build_store value_val last_elem_ptr builder);
+      
+      (* Store the new array pointer back to the array variable *)
+      ignore (build_store new_array_ptr arr_val builder);
+      None
+
+  | HArrayPop (arr) ->
+      (* Get the array pointer *)
+      let arr_val = codegen_expr tables arr in
+      
+      (* Load the array pointer *)
+      let array_ptr = 
+        match arr with
+        | HVar _ -> build_load (pointer_type context) arr_val "array_ptr_load" builder
+        | _ -> arr_val
+      in
+      
+      (* Get current array length *)
+      let length_ptr = build_bitcast array_ptr (pointer_type context) "length_ptr" builder in
+      let current_length = build_load (i64_type context) length_ptr "current_length" builder in
+      
+      (* Create blocks for bounds checking - can't pop from empty array *)
+      let current_block = insertion_block builder in
+      let parent = block_parent current_block in
+      let empty_array_block = append_block context "empty_array" parent in
+      let valid_pop_block = append_block context "valid_pop" parent in
+      let after_pop_block = append_block context "after_pop" parent in
+      
+      (* Check if array is empty *)
+      let is_empty = build_icmp Llvm.Icmp.Eq current_length (const_int (i64_type context) 0) "is_empty" builder in
+      ignore (build_cond_br is_empty empty_array_block valid_pop_block builder);
+      
+      (* Handle empty array case *)
+      position_at_end empty_array_block builder;
+      let err_msg = build_global_stringptr "[Codegen] Cannot pop from empty array\n" "empty_arr_err_msg" builder in
+      ignore (build_call printf_ty printf_func [| err_msg |] "print_empty_error" builder);
+      let exit_func = declare_function "exit" (function_type (void_type context) [| i32_type context |]) the_module in
+      ignore (build_call (function_type (void_type context) [| i32_type context |]) exit_func [| const_int (i32_type context) 1 |] "" builder);
+      ignore (build_unreachable builder);
+      
+      (* Handle valid pop case *)
+      position_at_end valid_pop_block builder;
+      
+      (* Calculate new length = current_length - 1 *)
+      let new_length = build_sub current_length (const_int (i64_type context) 1) "new_length" builder in
+      
+      (* Calculate size for new array (8 bytes for length + element_size * new_length) *)
+      let elem_size = 8 in
+      let new_array_size = build_add 
+        (const_int (i64_type context) 8) 
+        (build_mul new_length (const_int (i64_type context) elem_size) "elements_size" builder)
+        "array_size" builder in
+      
+      (* Allocate new memory *)
+      let new_array_mem = build_call malloc_ty malloc_func [| new_array_size |] "new_array_malloc" builder in
+      let new_array_ptr = build_pointercast new_array_mem (pointer_type context) "new_array_ptr" builder in
+      
+      (* Store new length *)
+      let new_length_ptr = build_bitcast new_array_ptr (pointer_type context) "new_length_ptr" builder in
+      ignore (build_store new_length new_length_ptr builder);
+      
+      (* Calculate data pointers for old and new array *)
+      let old_data_ptr = build_gep (i64_type context) length_ptr [| const_int (i64_type context) 1 |] "old_data_ptr" builder in
+      let new_data_ptr = build_gep (i64_type context) new_length_ptr [| const_int (i64_type context) 1 |] "new_data_ptr" builder in
+      
+      (* Cast to appropriate pointer types *)
+      let old_data_ptr_cast = build_bitcast old_data_ptr (pointer_type context) "old_data_ptr_cast" builder in
+      let new_data_ptr_cast = build_bitcast new_data_ptr (pointer_type context) "new_data_ptr_cast" builder in
+      
+      (* Copy only the N-1 elements - don't include the last element *)
+      let bytes_to_copy = build_mul new_length (const_int (i64_type context) elem_size) "bytes_to_copy" builder in
+      
+      let memcpy_ty = function_type (void_type context) [| 
+        pointer_type context; (* dst *)
+        pointer_type context; (* src *)
+        i64_type context;    (* size *)
+        i1_type context      (* isvolatile - can be false *)
+      |] in
+      let memcpy_func = declare_function "llvm.memcpy.p0.p0.i64" memcpy_ty the_module in
+      
+      ignore (build_call memcpy_ty memcpy_func [|
+        new_data_ptr_cast;
+        old_data_ptr_cast;
+        bytes_to_copy;
+        const_int (i1_type context) 0   (* not volatile *)
+      |] "" builder);
+      
+      (* Store the new array pointer back to the array variable *)
+      ignore (build_store new_array_ptr arr_val builder);
+      ignore (build_br after_pop_block builder);
+      
+      (* Continue execution after pop *)
+      position_at_end after_pop_block builder;
+      None
 
   | HBlock stmts ->
       List.fold stmts ~init:None ~f:(fun ret_opt s ->

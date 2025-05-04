@@ -37,7 +37,7 @@ type expr =
  | String of string
  | Float of float
  | Bool of bool              (* Boolean literal: true, false *)
- | Binop of bop * expr * expr (* Binary operation: e1 op e2 *)
+ | Binop of bop * expr * expr(* Binary operation: e1 op e2 *)
  | Unop of uop * expr        (* Unary operation: op e *)
  | FunCall of string * expr list  (* Function call: f(a, b, ...) *)
  | ArrayLit of expr list     (* Array literal: [1, 2, 3] *)
@@ -47,11 +47,13 @@ type expr =
 (* Statements - represent actions or commands *)
 type stmt =
  | Assign of string * expr   (* Assignment: x = expr *)
- | ArrayAssign of expr * expr * expr  (* Array assignment: arr[idx] = value *)
+ | ArrayAssign of expr * expr * expr     (* Array assignment: arr[idx] = value *)
+ | ArrayPut of expr * expr   (* Put statement: put(arr, value)*)
+ | ArrayPop of expr          (* Pop statement: pop(arr)*)
  | Declare of string * value_type * expr (* Type declaration *)
  | If of expr * stmt * stmt  (* Conditional: if expr then stmt1 else stmt2 *)
  | While of expr * stmt      (* Loop: while expr do stmt *)
  | Print of expr             (* Print statement: print expr *)
  | Block of stmt list        (* Block of statements: { stmt1; stmt2; ...; stmtn; } *)
  | FunDecl of string * (string * value_type) list * value_type * stmt  (* Function declaration: name, params, return type, body *)
- | Return of expr           (* Return statement *)
+ | Return of expr            (* Return statement *)
