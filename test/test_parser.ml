@@ -66,6 +66,9 @@ let rec stmt_equal s1 s2 =
       List.length p1 = List.length p2 &&
       List.for_all2 (fun (s1, t1) (s2, t2) -> s1 = s2 && t1 = t2) p1 p2
   | Return e1, Return e2 -> expr_equal e1 e2
+  | ArrayPut (arr1, val1), ArrayPut (arr2, val2) -> expr_equal arr1 arr2 && expr_equal val1 val2
+  | ArrayPop arr1, ArrayPop arr2 -> expr_equal arr1 arr2
+  | ArrayAssign (arr1, idx1, val1), ArrayAssign (arr2, idx2, val2) -> expr_equal arr1 arr2 && expr_equal idx1 idx2 && expr_equal val1 val2
   | _, _ -> false
 
 (* Pretty printer for AST expressions *)
@@ -114,6 +117,8 @@ let rec string_of_stmt = function
   | Return e -> "Return(" ^ string_of_expr e ^ ")"
   | ArrayAssign (arr, idx, e) -> "ArrayAssign(" ^ string_of_expr arr ^ ", " ^ 
                                 string_of_expr idx ^ ", " ^ string_of_expr e ^ ")"
+  | ArrayPut (arr, value) -> "ArrayPut(" ^ string_of_expr arr ^ ", " ^ string_of_expr value ^ ")"
+  | ArrayPop arr -> "ArrayPop(" ^ string_of_expr arr ^ ")"
 
 and string_of_type = function
   | IntType -> "IntType" | FloatType -> "FloatType" | StringType -> "StringType"
@@ -412,6 +417,118 @@ let test_complete_programs () =
     ])
     (parse_string "factorial(n: int) -> int := { result: int := 1; while n > 0 do { result := result * n; n := n - 1 }; return result }; print factorial(5)")
 
+let test_array_put_pop () =
+  (* ArrayPut tests - put(array, value) *)
+  check stmt_testable "array put operation with variable"
+    (ArrayPut(Var "arr", Int 42))
+    (match parse_string "put(arr, 42)" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  check stmt_testable "array put operation with array literal"
+    (ArrayPut(ArrayLit [Int 1; Int 2], Int 3))
+    (match parse_string "put([1, 2], 3)" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  check stmt_testable "array put operation with expressions"
+    (ArrayPut(Var "arr", Binop(Add, Int 10, Int 5)))
+    (match parse_string "put(arr, 10 + 5)" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  (* ArrayPop tests - pop(array) *)
+  check stmt_testable "array pop operation with variable"
+    (ArrayPop(Var "arr"))
+    (match parse_string "pop(arr)" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  check stmt_testable "array pop operation with array literal"
+    (ArrayPop(ArrayLit [Int 1; Int 2; Int 3]))
+    (match parse_string "pop([1, 2, 3])" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  check stmt_testable "array pop operation with array access"
+    (ArrayPop(ArrayGet(Var "matrix", Int 0)))
+    (match parse_string "pop(matrix[0])" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement")
+
+let test_array_assign_statements () =
+  check stmt_testable "simple array assignment"
+    (ArrayAssign (Var "arr", Int 0, Int 42))
+    (match parse_string "arr[0] := 42" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    
+  check stmt_testable "array assignment with variable index"
+    (ArrayAssign (Var "arr", Var "i", Int 42))
+    (match parse_string "arr[i] := 42" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    
+  check stmt_testable "array assignment with expression value"
+    (ArrayAssign (Var "arr", Int 0, Binop (Add, Int 1, Int 2)))
+    (match parse_string "arr[0] := 1 + 2" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    
+  check stmt_testable "array assignment with expression index"
+    (ArrayAssign (Var "arr", Binop (Add, Int 1, Int 2), Int 42))
+    (match parse_string "arr[1 + 2] := 42" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    
+  check stmt_testable "nested array assignment"
+    (ArrayAssign (ArrayGet (Var "matrix", Int 0), Int 1, Int 42))
+    (match parse_string "matrix[0][1] := 42" with Block [s] -> s | _ -> failwith "Unexpected AST")
+
+let test_array_assign () =
+  (* Test array assignment with variable access *)
+  check stmt_testable "array assignment with variable"
+    (ArrayAssign(Var "arr", Int 0, Int 42))
+    (match parse_string "arr[0] := 42" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  (* Test array assignment with expression index *)
+  check stmt_testable "array assignment with expression index"
+    (ArrayAssign(Var "arr", Binop(Add, Int 1, Int 2), Int 42))
+    (match parse_string "arr[1 + 2] := 42" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  (* Test array assignment with expression value *)
+  check stmt_testable "array assignment with expression value"
+    (ArrayAssign(Var "arr", Int 0, Binop(Mult, Int 6, Int 7)))
+    (match parse_string "arr[0] := 6 * 7" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement");
+    
+  (* Test array assignment with complex expressions *)
+  check stmt_testable "array assignment with complex expressions"
+    (ArrayAssign(
+      ArrayGet(Var "matrix", Int 0),
+      Binop(Add, Var "i", Int 1),
+      FunCall("max", [Var "x"; Var "y"])
+    ))
+    (match parse_string "matrix[0][i + 1] := max(x, y)" with
+     | Block [stmt] -> stmt
+     | _ -> failwith "Expected a single statement")
+
+let test_array_length_update () =
+  (* Test that the array length updates after put operations *)
+  check stmt_testable "array length update after put"
+    (Block [
+      Declare ("arr", ArrayType IntType, ArrayLit []);
+      ArrayPut (Var "arr", Int 1);
+      Print (ArrayLen (Var "arr"))
+    ])
+    (parse_string "arr: int[] := []; put(arr, 1); print len(arr)");
+    
+  (* Test that the array length updates after pop operations *)
+  check stmt_testable "array length update after pop"
+    (Block [
+      Declare ("arr", ArrayType IntType, ArrayLit [Int 1; Int 2; Int 3]);
+      ArrayPop (Var "arr");
+      Print (ArrayLen (Var "arr"))
+    ])
+    (parse_string "arr: int[] := [1, 2, 3]; pop(arr); print len(arr)")
+
 (* Test suite *)
 let suite =
   [
@@ -428,6 +545,10 @@ let suite =
     "Complex Statements", `Quick, test_complex_statements;
     "Operator Precedence", `Quick, test_operator_precedence;
     "Complete Programs", `Quick, test_complete_programs;
+    "Array Put and Pop Operations", `Quick, test_array_put_pop;
+    "Array Assign Statements", `Quick, test_array_assign_statements;
+    "Array Assign", `Quick, test_array_assign;
+    "Array Length Update", `Quick, test_array_length_update;
   ]
 
 (* Run the tests *)

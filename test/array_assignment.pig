@@ -1,17 +1,9 @@
 arr : int[] := [1, 2, 3]
-print "hej"
+print arr[2]
 
-x : int := 4
+put(arr, 10)
+print arr[3]
 
-arr[0] := 42
-print arr[0]
-
-while x < 6 {
-  print x
-  x = x + 1
-}
-
-print 17
-
-print arr[-1]
-print arr[x]
+arr2 : int[] := [4, 5, 6]
+pop(arr2)
+print len(arr2)

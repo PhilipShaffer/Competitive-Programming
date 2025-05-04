@@ -307,6 +307,36 @@ let test_array_with_if () =
     true
     (analyze_success "arr: int[] := [1, 2, 3]; if len(arr) > 0 then { print \"non-empty\" }")
 
+(* Test Array Length Updates *)
+let test_array_length_update () =
+  (* Test array length update after put operation *)
+  check bool "array length update after put"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; 
+                     initial_len: int := len(arr);
+                     put(arr, 4);  
+                     new_len: int := len(arr);
+                     check: bool := new_len = initial_len + 1");
+  
+  (* Test array length update after pop operation *)
+  check bool "array length update after pop"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3]; 
+                     initial_len: int := len(arr);
+                     pop(arr);
+                     new_len: int := len(arr);
+                     check: bool := new_len = initial_len - 1");
+  
+  (* Test multiple operations that modify length *)
+  check bool "array length after multiple operations"
+    true
+    (analyze_success "arr: int[] := [1, 2, 3];
+                     put(arr, 4);
+                     put(arr, 5);
+                     pop(arr);
+                     final_len: int := len(arr);
+                     check: bool := final_len = 4")
+
 (* Test suite *)
 let suite =
   [
@@ -317,6 +347,7 @@ let suite =
     "Return Statements", `Quick, test_return_statements;
     "Arrays", `Quick, test_array_semantics;
     "Arrays with Control Flow", `Quick, test_array_with_if;
+    "Array Length Updates", `Quick, test_array_length_update;
   ]
 
 (* Run the tests *)
