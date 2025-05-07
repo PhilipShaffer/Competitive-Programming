@@ -19,6 +19,9 @@ type hir_expr =
   | HArrayLit of hir_expr list * value_type  (** Array literal with element type *)
   | HArrayGet of hir_expr * hir_expr * value_type * bool  (** Array access with element type and bounds_checked flag *)
   | HArrayLen of hir_expr  (** Array length *)
+  | HCastInt of hir_expr * value_type  (** Cast to int *)
+  | HCastFloat of hir_expr * value_type  (** Cast to float *)
+  | HCastString of hir_expr * value_type  (** Cast to string *)
 
 (** HIR statements *)
 and hir_stmt =

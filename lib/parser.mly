@@ -88,7 +88,10 @@ expr:
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
   | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }     (* Array literal *)
   | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }              (* Array access *)
-  | LEN; LPAREN; arr = expr; RPAREN { ArrayLen arr }       (* Array length *)
+  | LEN; LPAREN; arr = expr; RPAREN       { ArrayLen arr }    (* Array length *)
+  | INTTYPE; LPAREN; e = expr; RPAREN     { CastInt e }         (* Type cast to int: int(e) *)
+  | FLOATTYPE; LPAREN; e = expr; RPAREN   { CastFloat e }       (* Type cast to float: float(e) *)
+  | STRINGTYPE; LPAREN; e = expr; RPAREN  { CastString e }      (* Type cast to string: string(e) *)
   ;
 
 (* Statement rules - define how statements are parsed *)

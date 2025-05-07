@@ -47,6 +47,9 @@ and pp_hir_expr (expr : Hir.hir_expr) : string =
       Printf.sprintf "HArrayGet(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty) checked
   | Hir.HArrayLen arr ->
       Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
+  | Hir.HCastInt (e, ty) -> Printf.sprintf "HCastInt(%s, %s)" (pp_hir_expr e) (pp_ty ty)
+  | Hir.HCastFloat (e, ty) -> Printf.sprintf "HCastFloat(%s, %s)" (pp_hir_expr e) (pp_ty ty)
+  | Hir.HCastString (e, ty) -> Printf.sprintf "HCastString(%s, %s)" (pp_hir_expr e) (pp_ty ty)
 
 and pp_ty (ty : Ast.value_type) : string =
   match ty with

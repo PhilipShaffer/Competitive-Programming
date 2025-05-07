@@ -18,6 +18,9 @@ type hir_expr =
   | HArrayLit of hir_expr list * value_type  (* Array literal with element type *)
   | HArrayGet of hir_expr * hir_expr * value_type * bool  (* Array access with element type and bounds_checked flag *)
   | HArrayLen of hir_expr  (* Array length *)
+  | HCastInt of hir_expr * value_type
+  | HCastFloat of hir_expr * value_type
+  | HCastString of hir_expr * value_type
 
 (* HIR statements *)
 type hir_stmt =
@@ -47,6 +50,9 @@ let type_of_expr (expr : hir_expr) : Ast.value_type =
   | HArrayLit (_, ty) -> ty
   | HArrayGet (_, _, ty, _) -> ty
   | HArrayLen _ -> Ast.IntType
+  | HCastInt (_, _) -> Ast.IntType
+  | HCastFloat (_, _) -> Ast.FloatType
+  | HCastString (_, _) -> Ast.StringType
 
 (* Minimal pretty-printer for HIR - adapted from bin/main.ml *) 
 let rec pp_hir_stmt (stmt : hir_stmt) : string =
@@ -84,6 +90,9 @@ and pp_hir_expr (expr : hir_expr) : string =
   | HArrayGet (arr, idx, ty, checked) -> 
       Printf.sprintf "HArrayGet(%s, %s, %s, %b)" (pp_hir_expr arr) (pp_hir_expr idx) (pp_ty ty) checked
   | HArrayLen arr -> Printf.sprintf "HArrayLen(%s)" (pp_hir_expr arr)
+  | HCastInt (e, ty) -> Printf.sprintf "HCastInt(%s, %s)" (pp_hir_expr e) (pp_ty ty)
+  | HCastFloat (e, ty) -> Printf.sprintf "HCastFloat(%s, %s)" (pp_hir_expr e) (pp_ty ty)
+  | HCastString (e, ty) -> Printf.sprintf "HCastString(%s, %s)" (pp_hir_expr e) (pp_ty ty)
 
 and pp_ty (ty : Ast.value_type) : string =
   match ty with

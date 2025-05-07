@@ -142,7 +142,39 @@ let test_type_checking () =
   check bool "if condition type"
     true
     (analyze_error "if 42 then { print 1 } else { print 2 }" "must be bool")
-  
+
+(* Type Casting Tests *)
+let test_type_casting () =
+  (* Test casting int to float *)
+  check bool "int to float cast"
+    true
+    (analyze_success "x: int := 42; y: float := float(x)");
+
+  (* Test casting float to int *)
+  check bool "float to int cast"
+    true
+    (analyze_success "x: float := 3.14; y: int := int(x)");
+
+  (* Test casting int to string *)
+  check bool "int to string cast"
+    true
+    (analyze_success "x: int := 42; y: string := string(x)");
+
+  (* Test casting float to string *)
+  check bool "float to string cast"
+    true
+    (analyze_success "x: float := 3.14; y: string := string(x)");
+
+  (* Test invalid cast from bool to int *)
+  check bool "invalid bool to int cast"
+    true
+    (analyze_error "x: bool := true; y: int := int(x)" "Invalid type for int cast");
+
+  (* Test nested casting *)
+  check bool "nested casting"
+    true
+    (analyze_success "x: int := 42; y: string := string(float(x))")
+
 (* Function Tests *)
 let test_functions () =
   (* Clear the symbol table between tests *)
@@ -343,6 +375,7 @@ let suite =
     "Variable Declaration", `Quick, test_variable_declaration;
     "Variable Scoping", `Quick, test_variable_scoping;
     "Type Checking", `Quick, test_type_checking;
+    "Type Casting", `Quick, test_type_casting;
     "Functions", `Quick, test_functions;
     "Return Statements", `Quick, test_return_statements;
     "Arrays", `Quick, test_array_semantics;
