@@ -1,5 +1,17 @@
 (* Abstract Syntax Tree (AST) for the While language *)
 
+(* Location type for error reporting *)
+type location = {
+  start_pos : Lexing.position;
+  end_pos : Lexing.position;
+}
+
+(* Utility container for adding location information *)
+type 'a located = {
+  value : 'a;
+  loc : location;
+}
+
 (* Value type enum to represent types *)
 type value_type =
   | IntType

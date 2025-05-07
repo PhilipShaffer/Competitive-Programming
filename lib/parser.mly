@@ -4,6 +4,18 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Ast  (* Import the AST module to use its types *)
+
+  (* Error handling helpers *)
+  let syntax_error_message pos msg =
+    let open Lexing in
+    let line = pos.pos_lnum in
+    let column = pos.pos_cnum - pos.pos_bol + 1 in
+    Printf.sprintf "Syntax error at line %d, column %d: %s" line column msg
+
+  (* Helper for raising parser errors with precise location information *)
+  let parser_error loc msg =
+    let (start_pos, _) = loc in
+    raise (Failure (syntax_error_message start_pos msg))
 %}
 
 %token INTTYPE FLOATTYPE STRINGTYPE BOOLTYPE
@@ -60,6 +72,10 @@
 (* The main rule - entry point of the parser *)
 main:
   | sl = stmt_list; EOF { Block sl }  (* Parse a statement followed by EOF, return the statement *)
+  | error { 
+      (* We need at least one error rule to use the parser_error function *)
+      parser_error $loc "Syntax error at the beginning of the program" 
+    }
   ;
 
 (* Expression rules - define how expressions are parsed *)
@@ -93,18 +109,29 @@ expr:
 
 (* Statement rules - define how statements are parsed *)
 stmt:
-  | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
+  | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE 
+      { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
   | RETURN; e = expr { Return e }  (* Return statement *)
-  | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
-  | PUT; LPAREN; arr = expr; COMMA; value = expr; RPAREN  { ArrayPut(arr, value) }   (* Array put: put(arr, value) *)
-  | POP; LPAREN; arr = expr; RPAREN                       { ArrayPop arr }           (* Array pop: pop(arr) *)
-  | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }          (* Assignment: x := e *)
-  | x = ID;   COLON;   t = type_expr;    ASSIGN; e = expr { Declare (x, t, e) }      (* Typed variable declaration: x: t := e *)
-  | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
-  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE     { If (e, Block s, Block []) }                (* Conditional: if e then { ... } *)
-  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }           (* Loop: while e do s *)
-  | PRINT;  e = expr                                      { Print e }                (* Print statement: print e *)
-  | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }               (* Block: { s1; s2; ...; sn; } *)
+  | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr 
+      { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
+  | PUT; LPAREN; arr = expr; COMMA; value = expr; RPAREN  
+      { ArrayPut(arr, value) }   (* Array put: put(arr, value) *)
+  | POP; LPAREN; arr = expr; RPAREN  
+      { ArrayPop arr }  (* Array pop: pop(arr) *)
+  | x = ID; ASSIGN; e = expr  
+      { Assign (x, e) }  (* Assignment: x := e *)
+  | x = ID; COLON; t = type_expr; ASSIGN; e = expr 
+      { Declare (x, t, e) }  (* Typed variable declaration: x: t := e *)
+  | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE 
+      { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
+  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE     
+      { If (e, Block s, Block []) }  (* Conditional: if e then { ... } *)
+  | WHILE; e = expr; DO; s = stmt
+      { While (e, s) }  (* Loop: while e do s *)
+  | PRINT; e = expr
+      { Print e }  (* Print statement: print e *)
+  | LBRACE; sl = stmt_list; RBRACE
+      { Block sl }  (* Block: { s1; s2; ...; sn; } *)
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)

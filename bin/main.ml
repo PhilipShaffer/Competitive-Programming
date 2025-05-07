@@ -78,6 +78,63 @@ and pp_uop (op : Ast.uop) : string =
   | Ast.Neg -> "-"
   | Ast.Not -> "not"
 
+(* Helper functions for error reporting *)
+let get_error_location lexbuf =
+  let open Lexing in
+  let start_pos = lexbuf.lex_start_p in
+  let end_pos = lexbuf.lex_curr_p in
+  let start_line = start_pos.pos_lnum in
+  let start_col = start_pos.pos_cnum - start_pos.pos_bol + 1 in
+  let end_line = end_pos.pos_lnum in
+  let end_col = end_pos.pos_cnum - end_pos.pos_bol + 1 in
+  if start_line = end_line then
+    Printf.sprintf "line %d, columns %d-%d" start_line start_col end_col
+  else
+    Printf.sprintf "lines %d:%d, columns %d-%d" start_line end_line start_col end_col
+
+(* Print a source code snippet with error highlighting *)
+let print_error_snippet source lexbuf =
+  let open Lexing in
+  let start_pos = lexbuf.lex_start_p in
+  let end_pos = lexbuf.lex_curr_p in
+  let start_line = start_pos.pos_lnum in
+  let end_line = end_pos.pos_lnum in
+  let start_col = start_pos.pos_cnum - start_pos.pos_bol + 1 in
+  let end_col = end_pos.pos_cnum - end_pos.pos_bol + 1 in
+  
+  (* Get the source lines *)
+  let lines = String.split_lines source in
+  
+  (* Context: show the error line and a few lines before and after for context *)
+  let context_size = 2 in  (* Number of lines before and after the error to show *)
+  let start_context = max 0 (start_line - context_size - 1) in
+  let end_context = min (List.length lines - 1) (end_line + context_size - 1) in
+  
+  (* Print context lines with line numbers *)
+  for i = start_context to end_context do
+    let line_num = i + 1 in  (* Line numbers are 1-based *)
+    let line = match List.nth lines i with
+      | Some l -> l
+      | None -> "" (* Should not happen if our indices are correct, but just in case *)
+    in
+    Stdlib.prerr_string (Printf.sprintf "%4d | %s\n" line_num line);
+    
+    (* If this is the error line, print an indicator arrow *)
+    if line_num = start_line then begin
+      Stdlib.prerr_string "     | ";
+      for _ = 1 to start_col - 1 do
+        Stdlib.prerr_string " ";
+      done;
+      let error_length = if start_line = end_line then end_col - start_col else String.length line - start_col + 1 in
+      let error_length = max 1 error_length in (* Ensure at least one character is highlighted *)
+      for _ = 1 to error_length do
+        Stdlib.prerr_string "^";
+      done;
+      Stdlib.prerr_string "\n";
+    end;
+  done;
+  Stdlib.prerr_string "\n"
+
 let () =
   let usage_msg = "Usage: main.exe <source-file>" in
   let filename =
@@ -87,6 +144,10 @@ let () =
   in
   let source = In_channel.read_all filename in
   let lexbuf = Lexing.from_string source in
+  
+  (* Set filename in lexbuf for better error messages *)
+  Lexing.set_filename lexbuf filename;
+  
   try
     let ast = Parser.main Lexer.read lexbuf in
     let hir = Semant.analyze_stmt [StdHashtbl.create 32] ast in
@@ -110,10 +171,19 @@ let () =
 
   with
   | Semant.Semantic_error msg ->
-      prerr_endline ("Semantic error: " ^ msg); Stdlib.exit 2
+      prerr_endline ("Semantic error: " ^ msg);
+      Stdlib.exit 2
   | Parser.Error ->
-      prerr_endline "Parse error!"; Stdlib.exit 3
+      prerr_endline ("Syntax error at " ^ get_error_location lexbuf);
+      print_error_snippet source lexbuf;
+      Stdlib.exit 3
+  | Failure msg when String.is_prefix msg ~prefix:"Syntax error at line" ->
+      prerr_endline ("Syntax error: " ^ msg);
+      (* No need to print snippet as the error message is already detailed *)
+      Stdlib.exit 3
   | Failure msg when String.is_prefix msg ~prefix:"Codegen not implemented" ->
-      prerr_endline ("Codegen Error: " ^ msg); Stdlib.exit 5 (* Specific exit code for codegen errors *)
+      prerr_endline ("Codegen Error: " ^ msg); 
+      Stdlib.exit 5 (* Specific exit code for codegen errors *)
   | Failure msg ->
-      prerr_endline ("Failure: " ^ msg); Stdlib.exit 4
+      prerr_endline ("Error: " ^ msg);
+      Stdlib.exit 4

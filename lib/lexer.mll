@@ -5,6 +5,17 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Parser  (* Import the Parser module to use its tokens *)
+  
+  (* Create a more descriptive lexer error with location information *)
+  let lexer_error lexbuf msg =
+    let open Lexing in
+    let pos = lexbuf.lex_curr_p in
+    let line = pos.pos_lnum in
+    let col = pos.pos_cnum - pos.pos_bol + 1 in
+    let tok = Lexing.lexeme lexbuf in
+    let message = Printf.sprintf "Lexical error at line %d, column %d: %s (%s)" 
+                    line col msg tok in
+    raise (Failure message)
 }
 
 (* Definitions of regular expressions for different types of tokens *)
@@ -71,7 +82,7 @@ rule read =
   | ";"     { SEMICOLON } (* Semicolon *)
   | ":"     { COLON }     (* Colon *)
   | eof     { EOF }       (* End-of-file *)
-  | _ { raise (Failure ("Unexpected character: " ^ Lexing.lexeme lexbuf)) }  (* Catch-all for unexpected characters *)
+  | _       { lexer_error lexbuf "Unexpected character" }  (* Catch-all for unexpected characters *)
 
 and read_string buf =
   parse
@@ -84,8 +95,8 @@ and read_string buf =
       Buffer.add_string buf (Lexing.lexeme lexbuf);
       read_string buf lexbuf 
     }
-  | eof { raise (Failure "Unterminated string") }
-  | _   { raise (Failure ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
+  | eof { lexer_error lexbuf "Unterminated string" }
+  | _   { lexer_error lexbuf "Illegal string character" }
 
 (* Rule for single-line comments: reads until end of line and discards *)
 and read_single_line_comment =
@@ -99,7 +110,7 @@ and read_multi_line_comment =
   parse
   | "*/"    { read lexbuf }                         (* End of comment, return to main lexer *)
   | newline { Lexing.new_line lexbuf; read_multi_line_comment lexbuf }
-  | eof     { raise (Failure "Unterminated multi-line comment") }
+  | eof     { lexer_error lexbuf "Unterminated multi-line comment" }
   | _       { read_multi_line_comment lexbuf }      (* Ignore anything else *)
 
 (* Rule for OCaml-style comments (*...*)  *)
@@ -107,5 +118,5 @@ and read_ocaml_style_comment =
   parse
   | "*)"    { read lexbuf }                         (* End of comment, return to main lexer *)
   | newline { Lexing.new_line lexbuf; read_ocaml_style_comment lexbuf }
-  | eof     { raise (Failure "Unterminated OCaml-style comment") }
+  | eof     { lexer_error lexbuf "Unterminated OCaml-style comment" }
   | _       { read_ocaml_style_comment lexbuf }     (* Ignore anything else *)
