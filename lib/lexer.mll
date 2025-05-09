@@ -9,7 +9,7 @@
 
 (* Definitions of regular expressions for different types of tokens *)
 let white  = [' ' '\t']+              (* Whitespace characters *)
-let newline = '\n'                    (* Newline character *)
+let newline = '\r' | '\n' | "\r\n"                    (* Newline character *)
 let digit  = ['0'-'9']                (* Digits *)
 let int    = '-'? digit+              (* Integer literals, optionally starting with a minus sign *)
 let float  = '-'? digit+ '.' digit+   (* Float literals, optionally starting with a minus sign *)
