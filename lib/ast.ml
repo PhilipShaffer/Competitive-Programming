@@ -43,6 +43,9 @@ type expr =
  | ArrayLit of expr list     (* Array literal: [1, 2, 3] *)
  | ArrayGet of expr * expr   (* Array access: arr[idx] *)
  | ArrayLen of expr          (* Array length: len(arr) *)
+ | CastInt of expr           (* Cast to int: int(e) *)
+ | CastFloat of expr         (* Cast to float: float(e) *)
+ | CastString of expr        (* Cast to string: string(e) *)
 
 (* Statements - represent actions or commands *)
 type stmt =

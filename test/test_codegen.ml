@@ -332,6 +332,68 @@ let test_array_operations () =
   in
   check bool "Array bounds checking compiles successfully" true bounds_has_main
 
+(* Test type casting *)
+let test_type_casting_codegen () =
+  reset_symbols ();
+
+  (* Test int to float cast *)
+  let int_to_float_ir = parse_to_llvm "x: int := 42; y: float := float(x); print y" in
+  check bool "Valid module for int to float cast" true (assert_valid_module int_to_float_ir);
+
+  (* Test float to int cast *)
+  let float_to_int_ir = parse_to_llvm "x: float := 3.14; y: int := int(x); print y" in
+  check bool "Valid module for float to int cast" true (assert_valid_module float_to_int_ir);
+
+  (* Test int to string cast *)
+  let int_to_string_ir = parse_to_llvm "x: int := 42; y: string := string(x); print y" in
+  check bool "Valid module for int to string cast" true (assert_valid_module int_to_string_ir);
+
+  (* Test float to string cast *)
+  let float_to_string_ir = parse_to_llvm "x: float := 3.14; y: string := string(x); print y" in
+  check bool "Valid module for float to string cast" true (assert_valid_module float_to_string_ir);
+
+  (* Test nested casting *)
+  let nested_cast_ir = parse_to_llvm "x: int := 42; y: string := string(float(x)); print y" in
+  check bool "Valid module for nested casting" true (assert_valid_module nested_cast_ir)
+
+(* Test for invalid type casting *)
+let test_invalid_type_casting () =
+  reset_symbols ();
+
+  (* Test invalid cast from string to int - should fail in semant.ml *)
+  let test_string_to_int () =
+    try
+      let _ = parse_to_llvm "x: string := \"hello\"; y: int := int(x); print y" in
+      Stdlib.print_endline "ERROR: String to int cast did not fail as expected";
+      false (* Should not reach here *)
+    with
+    | Libraries.Semant.Semantic_error msg ->
+        (* Print the actual error for diagnosis *)
+        Stdlib.print_endline ("Got Semantic_error: " ^ msg);
+        msg = "Cannot cast string to int"
+    | exn -> 
+        Stdlib.print_endline ("Got unexpected exception: " ^ Printexc.to_string exn);
+        false
+  in
+  check bool "Fails for string to int cast" true (test_string_to_int());
+
+  (* Test invalid cast from bool to float - should fail in semant.ml *)
+  let test_bool_to_float () =
+    try
+      let _ = parse_to_llvm "x: bool := true; y: float := float(x); print y" in
+      Stdlib.print_endline "ERROR: Bool to float cast did not fail as expected";
+      false (* Should not reach here *)
+    with
+    | Libraries.Semant.Semantic_error msg ->
+        (* Print the actual error for diagnosis *)
+        Stdlib.print_endline ("Got Semantic_error: " ^ msg);
+        msg = "Invalid type for float cast"
+    | exn -> 
+        Stdlib.print_endline ("Got unexpected exception: " ^ Printexc.to_string exn);
+        false
+  in
+  check bool "Fails for bool to float cast" true (test_bool_to_float())
+
 (* Test suite *)
 let suite =
   [
@@ -342,6 +404,8 @@ let suite =
     "Control Flow", `Quick, test_control_flow;
     "Functions", `Quick, test_functions;
     "Array Operations", `Quick, test_array_operations;
+    "Type Casting", `Quick, test_type_casting_codegen;
+    "Invalid Type Casting", `Quick, test_invalid_type_casting;
   ]
 
 (* Run the tests *)

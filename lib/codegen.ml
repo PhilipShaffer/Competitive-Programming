@@ -318,6 +318,126 @@ let rec codegen_expr (tables : symbol_tables) (expr : hir_expr) : llvalue =
       let ret_type = llvm_type_of ty in
       let func_type = function_type ret_type arg_types in
       build_call func_type callee_f arg_vals "calltmp" builder
+  | HCastInt (e, _) ->
+      let operand = codegen_expr tables e in
+      let operand_type = type_of operand in
+      let is_float_op = match classify_type operand_type with
+        | TypeKind.Double -> true
+        | _ -> false
+      in
+      if is_float_op then build_fptosi operand (i64_type context) "cast_int" builder
+      else failwith "Codegen error: CastInt only valid for float types"
+  | HCastFloat (e, _) ->
+      let operand = codegen_expr tables e in
+      let operand_type = type_of operand in
+      let is_int_op = match classify_type operand_type with
+        | TypeKind.Integer -> true
+        | _ -> false
+      in
+      if is_int_op then build_sitofp operand (double_type context) "cast_float" builder
+      else failwith "Codegen error: CastFloat only valid for int types"
+  | HCastString (e, _) ->
+      let operand = codegen_expr tables e in
+      let operand_type = type_of operand in
+      
+      (* First, ensure we have the itoa and ftoa helper functions defined *)
+      let declare_string_helpers () =
+        (* Helper function to convert int to string - uses snprintf *)
+        let itoa_func = 
+          match lookup_function "int_to_string" the_module with
+          | Some f -> f
+          | None ->
+              (* Define a helper function to convert int to string *)
+              let itoa_ty = function_type (pointer_type context) [| i64_type context |] in
+              let itoa_func = declare_function "int_to_string" itoa_ty the_module in
+              
+              (* Create function body *)
+              let entry_bb = append_block context "entry" itoa_func in
+              let old_builder_pos = insertion_block builder in
+              position_at_end entry_bb builder;
+              
+              (* Get the integer argument *)
+              let int_val = param itoa_func 0 in
+              
+              (* Allocate buffer on heap - 32 bytes is enough for any 64-bit int *)
+              let buffer_size = const_int (i64_type context) 32 in
+              let buffer = build_call malloc_ty malloc_func [| buffer_size |] "str_buffer" builder in
+              
+              (* Use snprintf to format integer to string *)
+              let snprintf_ty = var_arg_function_type (i32_type context) [| pointer_type context; i64_type context; pointer_type context |] in
+              let snprintf_func = 
+                match lookup_function "snprintf" the_module with
+                | Some f -> f
+                | None -> declare_function "snprintf" snprintf_ty the_module in
+              
+              let format_str = build_global_stringptr "%lld" "int_format" builder in
+              ignore (build_call snprintf_ty snprintf_func 
+                     [| buffer; buffer_size; format_str; int_val |] "snprintf_call" builder);
+              
+              (* Return the buffer *)
+              ignore (build_ret buffer builder);
+              
+              (* Restore builder position *)
+              position_at_end old_builder_pos builder;
+              itoa_func
+        in
+        
+        (* Helper function to convert float to string - uses snprintf *)
+        let ftoa_func = 
+          match lookup_function "float_to_string" the_module with
+          | Some f -> f
+          | None ->
+              (* Define a helper function to convert float to string *)
+              let ftoa_ty = function_type (pointer_type context) [| double_type context |] in
+              let ftoa_func = declare_function "float_to_string" ftoa_ty the_module in
+              
+              (* Create function body *)
+              let entry_bb = append_block context "entry" ftoa_func in
+              let old_builder_pos = insertion_block builder in
+              position_at_end entry_bb builder;
+              
+              (* Get the float argument *)
+              let float_val = param ftoa_func 0 in
+              
+              (* Allocate buffer on heap - 64 bytes for float representation *)
+              let buffer_size = const_int (i64_type context) 64 in
+              let buffer = build_call malloc_ty malloc_func [| buffer_size |] "str_buffer" builder in
+              
+              (* Use snprintf to format float to string *)
+              let snprintf_ty = var_arg_function_type (i32_type context) [| pointer_type context; i64_type context; pointer_type context |] in
+              let snprintf_func = 
+                match lookup_function "snprintf" the_module with
+                | Some f -> f
+                | None -> declare_function "snprintf" snprintf_ty the_module in
+              
+              let format_str = build_global_stringptr "%f" "float_format" builder in
+              ignore (build_call snprintf_ty snprintf_func 
+                     [| buffer; buffer_size; format_str; float_val |] "snprintf_call" builder);
+              
+              (* Return the buffer *)
+              ignore (build_ret buffer builder);
+              
+              (* Restore builder position *)
+              position_at_end old_builder_pos builder;
+              ftoa_func
+        in
+        (itoa_func, ftoa_func)
+      in
+      
+      (* Get or declare our helper functions *)
+      let (itoa_func, ftoa_func) = declare_string_helpers () in
+      
+      (* Call appropriate conversion function based on operand type *)
+      match classify_type operand_type with
+      | TypeKind.Integer ->
+          build_call (function_type (pointer_type context) [| i64_type context |]) 
+            itoa_func [| operand |] "int_to_str" builder
+          
+      | TypeKind.Double ->
+          build_call (function_type (pointer_type context) [| double_type context |]) 
+            ftoa_func [| operand |] "float_to_str" builder
+          
+      | _ -> failwith "Codegen error: CastString only valid for int and float types"
 
 and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* Returns value for return statements *) =
   match stmt with

@@ -49,6 +49,9 @@ let rec expr_equal e1 e2 =
   | ArrayGet (arr1, idx1), ArrayGet (arr2, idx2) ->
       expr_equal arr1 arr2 && expr_equal idx1 idx2
   | ArrayLen arr1, ArrayLen arr2 -> expr_equal arr1 arr2
+  | CastInt e1, CastInt e2 -> expr_equal e1 e2
+  | CastFloat e1, CastFloat e2 -> expr_equal e1 e2
+  | CastString e1, CastString e2 -> expr_equal e1 e2
   | _, _ -> false
 
 let rec stmt_equal s1 s2 =
@@ -94,6 +97,9 @@ let rec string_of_expr = function
       "ArrayGet(" ^ string_of_expr arr ^ ", " ^ string_of_expr idx ^ ")"
   | ArrayLen arr ->
       "ArrayLen(" ^ string_of_expr arr ^ ")"
+  | CastInt e -> "CastInt(" ^ string_of_expr e ^ ")"
+  | CastFloat e -> "CastFloat(" ^ string_of_expr e ^ ")"
+  | CastString e -> "CastString(" ^ string_of_expr e ^ ")"
 
 and string_of_bop = function
   | Add -> "Add" | Sub -> "Sub" | Mult -> "Mult" | Div -> "Div" | Mod -> "Mod"
@@ -272,6 +278,23 @@ let test_array_expressions () =
   (* check expr_testable "nested array access"
     (ArrayGet (ArrayGet (Var "matrix", Int 0), Int 1))
     (parse_expr "print matrix[0][1]") *)
+
+let test_type_casting () =
+  check expr_testable "cast to int"
+    (CastInt (Float 3.14))
+    (parse_expr "print int(3.14)");
+
+  check expr_testable "cast to float"
+    (CastFloat (Int 42))
+    (parse_expr "print float(42)");
+
+  check expr_testable "cast to string"
+    (CastString (Int 42))
+    (parse_expr "print string(42)");
+
+  check expr_testable "nested type casting"
+    (CastString (CastFloat (Int 42)))
+    (parse_expr "print string(float(42))")
 
 (* Statements *)
 let test_assignment_statements () =
@@ -538,6 +561,7 @@ let suite =
     "Comparison Expressions", `Quick, test_comparison_expressions;
     "Complex Expressions", `Quick, test_complex_expressions;
     "Array Expressions", `Quick, test_array_expressions;
+    "Type Casting", `Quick, test_type_casting;
     "Assignment Statements", `Quick, test_assignment_statements;
     "Control Flow Statements", `Quick, test_control_flow_statements;
     "Function Statements", `Quick, test_function_statements;

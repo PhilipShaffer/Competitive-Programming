@@ -332,51 +332,44 @@ let test_pp_array_operations () =
     "HArrayLen(HVar(0:int[]))" 
     (pp_hir_expr (HArrayLen (HVar (0, ArrayType IntType))))
 
-
-(* Uncomment this test if you want to check array literal type preservation *)
-(* This test is commented out because it doesn't work with the current implementation *)
-(* This is because the array literal is not being converted to HIR correctly *)
-(* Test array type preservation *)
-(* let test_array_type_preservation () =
+(* Test type casting in HIR *)
+let test_type_casting_hir () =
   reset_symbols ();
-  
-  (* Helper function to find the print statement in an HIR structure *)
-  let rec find_print_expr = function
-    | HPrint e -> Some e
-    | HBlock stmts -> 
-        List.fold_left (fun acc stmt -> 
-          match acc with 
-          | Some _ -> acc 
-          | None -> find_print_expr stmt
-        ) None stmts
-    | _ -> None
-  in
-  
-  (* Test array literal *)
-  let array_lit_hir = parse_to_hir "print [1, 2, 3]" in
-  (match find_print_expr array_lit_hir with
-   | Some e -> check value_type_testable "array literal type preserved" (ArrayType IntType) (type_of_expr e)
-   | None -> check bool "should contain a print statement" false true);
-  
-  (* Test array access *)
-  let array_access_hir = parse_to_hir "arr: int[] := [1, 2, 3]; print arr[0]" in
-  (match find_print_expr array_access_hir with
-   | Some e -> check value_type_testable "array access type preserved" IntType (type_of_expr e)
-   | None -> check bool "should contain a print statement" false true);
-  
-  (* Test array length *)
-  let array_len_hir = parse_to_hir "arr: int[] := [1, 2, 3]; print len arr" in
-  (match find_print_expr array_len_hir with
-   | Some e -> check value_type_testable "array length type preserved" IntType (type_of_expr e)
-   | None -> check bool "should contain a print statement" false true);
-   
-  (* Test mixed type array should fail *)
-  (try
-     let _ = parse_to_hir "arr: int[] := [1, \"string\", 3]" in
-     check bool "mixed type array should be caught" false true (* If we get here, type checking failed *)
-   with 
-   | Semant.Semantic_error _ -> check bool "type error correctly raised" true true
-   | _ -> check bool "expected type error" false true) *)
+
+  (* Test int to float cast *)
+  let int_to_float_hir = parse_to_hir "x: int := 42; y: float := float(x)" in
+  (match int_to_float_hir with
+   | HBlock [HDeclare (_, IntType, _); HDeclare (_, FloatType, HCastFloat (_, IntType))] ->
+       check bool "int to float cast in HIR" true true
+   | _ -> check bool "int to float cast in HIR" false true);
+
+  (* Test float to int cast *)
+  let float_to_int_hir = parse_to_hir "x: float := 3.14; y: int := int(x)" in
+  (match float_to_int_hir with
+   | HBlock [HDeclare (_, FloatType, _); HDeclare (_, IntType, HCastInt (_, FloatType))] ->
+       check bool "float to int cast in HIR" true true
+   | _ -> check bool "float to int cast in HIR" false true);
+
+  (* Test int to string cast *)
+  let int_to_string_hir = parse_to_hir "x: int := 42; y: string := string(x)" in
+  (match int_to_string_hir with
+   | HBlock [HDeclare (_, IntType, _); HDeclare (_, StringType, HCastString (_, IntType))] ->
+       check bool "int to string cast in HIR" true true
+   | _ -> check bool "int to string cast in HIR" false true);
+
+  (* Test float to string cast *)
+  let float_to_string_hir = parse_to_hir "x: float := 3.14; y: string := string(x)" in
+  (match float_to_string_hir with
+   | HBlock [HDeclare (_, FloatType, _); HDeclare (_, StringType, HCastString (_, FloatType))] ->
+       check bool "float to string cast in HIR" true true
+   | _ -> check bool "float to string cast in HIR" false true);
+
+  (* Test nested casting *)
+  let nested_cast_hir = parse_to_hir "x: int := 42; y: string := string(float(x))" in
+  (match nested_cast_hir with
+   | HBlock [HDeclare (_, IntType, _); HDeclare (_, StringType, HCastString (HCastFloat (_, IntType), FloatType))] ->
+       check bool "nested casting in HIR" true true
+   | _ -> check bool "nested casting in HIR" false true)
 
 (* Test suite *)
 let suite =
@@ -388,6 +381,7 @@ let suite =
     "Return Type Checking", `Quick, test_hir_return_type_checking;
     "Array Types", `Quick, test_array_types;
     "Pretty Print Array Operations", `Quick, test_pp_array_operations;
+    "Type Casting", `Quick, test_type_casting_hir;
     (* "Array Type Preservation", `Quick, test_array_type_preservation; *)
   ]
 

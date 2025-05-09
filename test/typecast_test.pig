@@ -1,0 +1,15 @@
+x : int := 42
+k : float := 2.0
+n : int := int(k)
+m : float := float(int(k))
+z : string := string(x)
+l : string := "42.00000"
+y : string := string(int(k))
+o : string := string(float(x))
+print x   (* 42 *)
+print k   (* 2.0 *)
+print n   (* 2 *)
+print m   (* 2.0 *)
+print z   (* "42" *)
+print y   (* "2" *)
+print o   (* 42.000000 *)
