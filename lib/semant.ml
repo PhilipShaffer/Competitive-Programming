@@ -310,3 +310,24 @@ and analyze_expr (tbls : symbol_table) (expr : Ast.expr) : Hir.hir_expr * value_
             raise (Semantic_error ("Type mismatch in function call: " ^ fname));
           (HFunCall (sym_of_name fname, hargs, ret_type), ret_type)
       | _ -> raise (Semantic_error ("Undeclared function: " ^ fname)))
+  | CastInt e ->
+      let he, t = analyze_expr tbls e in
+      (match t with
+      | FloatType -> (HCastInt (he, FloatType), IntType)
+      | StringType -> raise (Semantic_error "Cannot cast string to int")
+      | IntType -> raise (Semantic_error "Redundant cast to int")
+      | _ -> raise (Semantic_error "Invalid type for int cast"))
+  | CastFloat e ->
+      let he, t = analyze_expr tbls e in
+      (match t with
+      | IntType -> (HCastFloat (he, IntType), FloatType)
+      | StringType -> raise (Semantic_error "Cannot cast string to float")
+      | FloatType -> raise (Semantic_error "Redundant cast to float")
+      | _ -> raise (Semantic_error "Invalid type for float cast"))
+  | CastString e ->
+      let he, t = analyze_expr tbls e in
+      (match t with
+      | IntType -> (HCastString (he, IntType), StringType)
+      | FloatType -> (HCastString (he, FloatType), StringType)
+      | StringType -> raise (Semantic_error "Redundant cast to string")
+      | _ -> raise (Semantic_error "Invalid type for string cast"))
