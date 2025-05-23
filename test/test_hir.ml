@@ -261,7 +261,7 @@ let test_hir_return_type_checking () =
   (* Test nested return type checking *)
   (try
      let _ = parse_to_hir 
-       "test() -> int := { if true then { return \"oops\" } else { return 42 } }" in
+       "test() -> int := { if true { return \"oops\" } else { return 42 } }" in
      check bool "type mismatch in branch should be caught" true true (* If we get here, type checking failed *)
    with 
    | Semant.Semantic_error msg ->

@@ -2,6 +2,7 @@ open Base
 open Stdio
 open Libraries
 module StdHashtbl = Stdlib.Hashtbl
+open Parse_error
 
 (* Include Llvm *) 
 open Llvm
@@ -81,6 +82,38 @@ and pp_uop (op : Ast.uop) : string =
   | Ast.Neg -> "-"
   | Ast.Not -> "not"
 
+(* Helper function to show error context *)
+let show_error_context source lexbuf =
+  let pos = lexbuf.Lexing.lex_curr_p in
+  let line_num = pos.Lexing.pos_lnum in
+  let col = pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1 in
+  let lines = String.split_lines source in
+  let error_line = 
+    if line_num > 0 && line_num <= List.length lines then
+      List.nth_exn lines (line_num - 1)
+    else
+      "<line not found>"
+  in
+  let pointer = String.make (col - 1) ' ' ^ "^" in
+  Printf.sprintf "\n  %d | %s\n      %s\n" line_num error_line pointer
+
+(* Helper function to show error context with position range *)
+let show_error_context_range source start_pos end_pos =
+  let line_num = start_pos.Lexing.pos_lnum in
+  let start_col = start_pos.Lexing.pos_cnum - start_pos.Lexing.pos_bol + 1 in
+  let end_col = end_pos.Lexing.pos_cnum - end_pos.Lexing.pos_bol + 1 in
+  let lines = String.split_lines source in
+  let error_line = 
+    if line_num > 0 && line_num <= List.length lines then
+      List.nth_exn lines (line_num - 1)
+    else
+      "<line not found>"
+  in
+  let pointer = 
+    String.make (start_col - 1) ' ' ^ 
+    String.make (Int.max 1 (end_col - start_col)) '~' in
+  Printf.sprintf "\n  %d | %s\n      %s\n" line_num error_line pointer
+
 let () =
   let usage_msg = "Usage: main.exe <source-file>" in
   let filename =
@@ -90,6 +123,8 @@ let () =
   in
   let source = In_channel.read_all filename in
   let lexbuf = Lexing.from_string source in
+  (* Set filename for better error messages *)
+  lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
   try
     let ast = Parser.main Lexer.read lexbuf in
     let hir = Semant.analyze_stmt [StdHashtbl.create 32] ast in
@@ -112,10 +147,33 @@ let () =
      | Some err -> Stdlib.print_endline ("\nLLVM module verification failed: " ^ err));
 
   with
+  | ParseError (msg, start_pos, end_pos) ->
+      let line = start_pos.Lexing.pos_lnum in
+      let col = start_pos.Lexing.pos_cnum - start_pos.Lexing.pos_bol + 1 in
+      let context = show_error_context_range source start_pos end_pos in
+      prerr_endline (Printf.sprintf "Parse error at line %d, column %d: %s%s" 
+                      line col msg context);
+      Stdlib.exit 3
   | Semant.Semantic_error msg ->
       prerr_endline ("Semantic error: " ^ msg); Stdlib.exit 2
   | Parser.Error ->
-      prerr_endline "Parse error!"; Stdlib.exit 3
+      let pos = lexbuf.lex_curr_p in
+      let line = pos.pos_lnum in
+      let col = pos.pos_cnum - pos.pos_bol + 1 in
+      let token = Lexing.lexeme lexbuf in
+      let context = show_error_context source lexbuf in
+      prerr_endline (Printf.sprintf "Parse error at line %d, column %d: unexpected token '%s'%s" 
+                      line col token context);
+      (* Try to provide helpful suggestions based on common errors *)
+      (match token with
+      | "flot" -> prerr_endline "  Did you mean 'float'?"
+      | "in" | "int" when col > 1 -> 
+          let prev_chars = String.sub source ~pos:(lexbuf.lex_curr_p.pos_cnum - col - 2) ~len:2 in
+          if String.equal prev_chars ": " then
+            prerr_endline "  Did you mean 'int' (integer type)?"
+      | "=" -> prerr_endline "  Did you mean ':=' for assignment or '=' for equality comparison?"
+      | _ -> ());
+      Stdlib.exit 3
   | Failure msg when String.is_prefix msg ~prefix:"Codegen not implemented" ->
       prerr_endline ("Codegen Error: " ^ msg); Stdlib.exit 5 (* Specific exit code for codegen errors *)
   | Failure msg ->

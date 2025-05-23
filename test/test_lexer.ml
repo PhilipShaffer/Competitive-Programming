@@ -4,8 +4,8 @@ open Parser (* Need this for token types *)
 
 (* Add this function definition before the test cases *)
 let token_to_string = function
-  | IF -> "IF" | THEN -> "THEN" | ELSE -> "ELSE" | PRINT -> "PRINT"
-  | WHILE -> "WHILE" | DO -> "DO" | AND -> "AND" | OR -> "OR"
+  | IF -> "IF" | ELSE -> "ELSE" | PRINT -> "PRINT"
+  | WHILE -> "WHILE" | AND -> "AND" | OR -> "OR"
   | NOT -> "NOT" | RETURN -> "RETURN" | ARROW -> "ARROW" | COMMA -> "COMMA"
   | VOIDTYPE -> "VOIDTYPE" | INTTYPE -> "INTTYPE" | FLOATTYPE -> "FLOATTYPE"
   | STRINGTYPE -> "STRINGTYPE" | BOOLTYPE -> "BOOLTYPE" | ASSIGN -> "ASSIGN"
@@ -37,8 +37,8 @@ let token_testable =
 (* Test cases *)
 let test_keywords () =
   check (list token_testable) "keywords"
-    [IF; THEN; ELSE; PRINT; WHILE; DO; AND; OR; NOT; LEN; PUT; POP; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
-    (lex_string "if then else print while do and or not len put pop return void int float string bool")
+    [IF; ELSE; PRINT; WHILE; AND; OR; NOT; LEN; PUT; POP; RETURN; VOIDTYPE; INTTYPE; FLOATTYPE; STRINGTYPE; BOOLTYPE]
+    (lex_string "if else print while and or not len put pop return void int float string bool")
 
 let test_operators () =
   check (list token_testable) "operators"

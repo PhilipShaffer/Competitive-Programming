@@ -27,11 +27,9 @@ rule read =
   | "true"  { BOOL true }   (* Boolean literal true *)
   | "false" { BOOL false }  (* Boolean literal false *)
   | "if"    { IF }          (* If keyword *)
-  | "then"  { THEN }        (* Then keyword *)
   | "else"  { ELSE }        (* Else keyword *)
   | "print" { PRINT }       (* Print keyword *)
   | "while" { WHILE }       (* While keyword *)
-  | "do"    { DO }          (* Do keyword *)
   | "and"   { AND }         (* Logical AND operator *)
   | "or"    { OR }          (* Logical OR operator *)
   | "not"   { NOT }         (* Logical NOT operator *)
@@ -71,7 +69,13 @@ rule read =
   | ";"     { SEMICOLON } (* Semicolon *)
   | ":"     { COLON }     (* Colon *)
   | eof     { EOF }       (* End-of-file *)
-  | _ { raise (Failure ("Unexpected character: " ^ Lexing.lexeme lexbuf)) }  (* Catch-all for unexpected characters *)
+  | _ { 
+      let pos = lexbuf.Lexing.lex_curr_p in
+      let line = pos.Lexing.pos_lnum in
+      let col = pos.Lexing.pos_cnum - pos.Lexing.pos_bol + 1 in
+      raise (Failure (Printf.sprintf "Unexpected character '%s' at line %d, column %d" 
+                       (Lexing.lexeme lexbuf) line col)) 
+    }  (* Catch-all for unexpected characters *)
 
 and read_string buf =
   parse

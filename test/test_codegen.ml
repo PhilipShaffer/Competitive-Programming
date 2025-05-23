@@ -196,18 +196,18 @@ let test_control_flow () =
   reset_symbols ();
   
   (* If-then-else statement *)
-  let if_ir = parse_to_llvm "if 1 < 2 then { print 1 } else { print 2 }" in
+  let if_ir = parse_to_llvm "if 1 < 2 { print 1 } else { print 2 }" in
   check bool "Valid module for if statement" true (assert_valid_module if_ir);
   
   (* While loop *)
-  let while_ir = parse_to_llvm "x : int := 0; while x < 5 do { print x; x := x + 1 }" in
+  let while_ir = parse_to_llvm "x : int := 0; while x < 5 { print x; x := x + 1 }" in
   check bool "Valid module for while loop" true (assert_valid_module while_ir);
   
   (* Nested if in while *)
   let nested_ir = parse_to_llvm "
     x : int := 0;
-    while x < 3 do {
-      if x = 1 then { print \"one\" } else { print x };
+    while x < 3 {
+      if x = 1 { print \"one\" } else { print x };
       x := x + 1
     }
   " in
@@ -248,7 +248,7 @@ let test_functions () =
   (* Recursive function *)
   let rec_func_ir = parse_to_llvm "
     factorial(n : int) -> int := {
-      if n <= 1 then { return 1 } else { return n * factorial(n - 1) }
+      if n <= 1 { return 1 } else { return n * factorial(n - 1) }
     }
     print factorial(5)
   " in
@@ -303,7 +303,7 @@ let test_array_operations () =
   (* Array bounds checking *)
   let array_bounds_ir = parse_to_llvm "
     arr : int[] := [1, 2, 3, 4, 5];
-    if 1 < 2 then { print arr[2] } else { print arr[4] }
+    if 1 < 2 { print arr[2] } else { print arr[4] }
   " in
   check bool "Valid module for array bounds checking" true (assert_valid_module array_bounds_ir);
   

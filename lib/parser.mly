@@ -4,6 +4,7 @@
   (* This is the header section where OCaml code can be included.
      It's typically used for imports and helper functions. *)
   open Ast  (* Import the AST module to use its types *)
+  open Parse_error  (* Import parse error handling *)
 %}
 
 %token INTTYPE FLOATTYPE STRINGTYPE BOOLTYPE
@@ -18,7 +19,7 @@
 %token LT LEQ GT GEQ EQ NEQ
 
 (* Tokens for keywords *)
-%token IF THEN ELSE PRINT WHILE DO ASSIGN
+%token IF ELSE PRINT WHILE ASSIGN
 
 (* Tokens for logical operators *)
 %token AND OR NOT
@@ -65,6 +66,11 @@ main:
 (* Expression rules - define how expressions are parsed *)
 expr:
   | x = ID; LPAREN; args = arg_list; RPAREN { FunCall(x, args) }  (* Function call: f(a, b, ...) *)
+  | ID; LPAREN; error { 
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid function call syntax. Expected arguments followed by ')'" start_pos end_pos
+    }
   | x = ID                       { Var x }                 (* Variable reference *)
   | i = INT                      { Int i }                 (* Integer literal *)
   | b = BOOL                     { Bool b }                (* Boolean literal *)
@@ -79,6 +85,11 @@ expr:
   | e1 = expr; GT;    e2 = expr  { Binop (Gt, e1, e2) }    (* Greater than: e1 > e2 *)
   | e1 = expr; GEQ;   e2 = expr  { Binop (Geq, e1, e2) }   (* Greater than or equal: e1 >= e2 *)
   | e1 = expr; EQ;    e2 = expr  { Binop (Eq, e1, e2) }    (* Equality: e1 == e2 *)
+  | expr; EQ; EQ; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid comparison. Did you mean '=' instead of '=='?" start_pos end_pos
+    }
   | e1 = expr; NEQ;   e2 = expr  { Binop (Neq, e1, e2) }   (* Inequality: e1 != e2 *)
   | e1 = expr; AND;   e2 = expr  { Binop (And, e1, e2) }   (* Logical AND: e1 and e2 *)
   | e1 = expr; OR;    e2 = expr  { Binop (Or, e1, e2) }    (* Logical OR: e1 or e2 *)
@@ -86,28 +97,133 @@ expr:
   | NOT; e = expr                { Unop (Not, e) }         (* Logical NOT: not e *)
   | MINUS; e = expr %prec UMINUS { Unop (Neg, e) }         (* Unary negation: -e *)
   | LPAREN; e = expr; RPAREN     { e }                     (* Parenthesized expression: (e) *)
+  | LPAREN; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid parenthesized expression. Expected an expression inside ( )" start_pos end_pos
+    }
+  | LPAREN; expr; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Unclosed parenthesis. Expected ')' after expression" start_pos end_pos
+    }
   | LBRACKET; elems = separated_list(COMMA, expr); RBRACKET { ArrayLit elems }     (* Array literal *)
+  | LBRACKET; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid array literal. Expected expressions separated by commas inside [ ]" start_pos end_pos
+    }
   | arr = expr; LBRACKET; idx = expr; RBRACKET { ArrayGet(arr, idx) }              (* Array access *)
+  | expr; LBRACKET; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid array access. Expected an index expression inside [ ]" start_pos end_pos
+    }
   | LEN; LPAREN; arr = expr; RPAREN       { ArrayLen arr }    (* Array length *)
+  | LEN; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid len syntax. Expected: len(array)" start_pos end_pos
+    }
   | INTTYPE; LPAREN; e = expr; RPAREN     { CastInt e }         (* Type cast to int: int(e) *)
   | FLOATTYPE; LPAREN; e = expr; RPAREN   { CastFloat e }       (* Type cast to float: float(e) *)
   | STRINGTYPE; LPAREN; e = expr; RPAREN  { CastString e }      (* Type cast to string: string(e) *)
+  | INTTYPE; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid type cast. Expected an expression inside int( )" start_pos end_pos
+    }
+  | FLOATTYPE; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid type cast. Expected an expression inside float( )" start_pos end_pos
+    }
+  | STRINGTYPE; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid type cast. Expected an expression inside string( )" start_pos end_pos
+    }
   ;
 
 (* Statement rules - define how statements are parsed *)
 stmt:
   | id = ID; LPAREN; params = param_list; RPAREN; ARROW; ret_type = type_expr; ASSIGN; LBRACE; body = stmt_list; RBRACE { FunDecl(id, params, ret_type, Block body) }  (* Function declaration *)
+  | ID; LPAREN; param_list; RPAREN; error {
+      let start_pos = $startpos($5) in
+      let end_pos = $endpos($5) in
+      raise_parse_error "Invalid function declaration. Expected '->' followed by return type after parameters" start_pos end_pos
+    }
   | RETURN; e = expr { Return e }  (* Return statement *)
+  | RETURN; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid return statement. Expected an expression after 'return'" start_pos end_pos
+    }
   | arr = expr; LBRACKET; idx = expr; RBRACKET; ASSIGN; value = expr { ArrayAssign(arr, idx, value) }  (* Array assignment: arr[idx] := value *)
+  | expr; LBRACKET; expr; RBRACKET; error {
+      let start_pos = $startpos($5) in
+      let end_pos = $endpos($5) in
+      raise_parse_error "Invalid array assignment. Expected ':=' after array access" start_pos end_pos
+    }
   | PUT; LPAREN; arr = expr; COMMA; value = expr; RPAREN  { ArrayPut(arr, value) }   (* Array put: put(arr, value) *)
+  | PUT; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid put syntax. Expected: put(array, value)" start_pos end_pos
+    }
   | POP; LPAREN; arr = expr; RPAREN                       { ArrayPop arr }           (* Array pop: pop(arr) *)
+  | POP; LPAREN; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid pop syntax. Expected: pop(array)" start_pos end_pos
+    }
   | x = ID;           ASSIGN; e = expr                    { Assign (x, e) }          (* Assignment: x := e *)
+  | ID;           EQ; error { 
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid assignment. Did you mean ':=' instead of '='?" start_pos end_pos
+    }
   | x = ID;   COLON;   t = type_expr;    ASSIGN; e = expr { Declare (x, t, e) }      (* Typed variable declaration: x: t := e *)
-  | IF; e = expr; THEN; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e then { ... } else { ... } *)
-  | IF; e = expr; THEN; LBRACE; s = stmt_list; RBRACE     { If (e, Block s, Block []) }                (* Conditional: if e then { ... } *)
-  | WHILE;  e = expr; DO;     s = stmt                    { While (e, s) }           (* Loop: while e do s *)
+  | ID;   COLON;   error { 
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid type in variable declaration. Expected a valid type after ':'" start_pos end_pos
+    }
+  | IF; e = expr; LBRACE; s1 = stmt_list; RBRACE; ELSE; LBRACE; s2 = stmt_list; RBRACE { If (e, Block s1, Block s2) }  (* Conditional: if e { ... } else { ... } *)
+  | IF; e = expr; LBRACE; s = stmt_list; RBRACE     { If (e, Block s, Block []) }                (* Conditional: if e { ... } *)
+  | IF; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid if statement. Expected: if <condition> { ... }" start_pos end_pos
+    }
+  | IF; expr; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid if statement. Expected '{' after condition" start_pos end_pos
+    }
+  | WHILE;  e = expr; s = stmt                    { While (e, s) }           (* Loop: while e s *)
+  | WHILE; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid while loop. Expected: while <condition> <statement>" start_pos end_pos
+    }
+  | WHILE; expr; error {
+      let start_pos = $startpos($3) in
+      let end_pos = $endpos($3) in
+      raise_parse_error "Invalid while loop. Expected statement or '{' after condition" start_pos end_pos
+    }
   | PRINT;  e = expr                                      { Print e }                (* Print statement: print e *)
+  | PRINT; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid print statement. Expected an expression after 'print'" start_pos end_pos
+    }
   | LBRACE; sl = stmt_list;   RBRACE                      { Block sl }               (* Block: { s1; s2; ...; sn; } *)
+  | LBRACE; error {
+      let start_pos = $startpos($2) in
+      let end_pos = $endpos($2) in
+      raise_parse_error "Invalid block. Expected statements inside { }" start_pos end_pos
+    }
   ;
 
 (* Statement list rules - define how sequences of statements are parsed *)
@@ -123,6 +239,11 @@ type_expr:
   | BOOLTYPE   { BoolType }
   | VOIDTYPE   { VoidType }
   | t = type_expr; LBRACKET; RBRACKET { ArrayType t }
+  | error { 
+      let start_pos = $symbolstartpos in
+      let end_pos = $endpos in
+      raise_parse_error "Invalid type expression. Expected 'int', 'float', 'string', 'bool', 'void', or array type (e.g., 'int[]')" start_pos end_pos
+    }
   ;
 
 param_list:

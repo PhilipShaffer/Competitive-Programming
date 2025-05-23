@@ -141,7 +141,7 @@ let test_type_checking () =
   (* Condition type must be boolean *)
   check bool "if condition type"
     true
-    (analyze_error "if 42 then { print 1 } else { print 2 }" "must be bool")
+    (analyze_error "if 42 { print 1 } else { print 2 }" "must be bool")
 
 (* Type Casting Tests *)
 let test_type_casting () =
@@ -205,7 +205,7 @@ let test_functions () =
   check bool "recursive function"
     true
     (analyze_success 
-      "factorial(n: int) -> int := { if n = 0 then { return 1 } else { return n * factorial(n - 1) } }");
+      "factorial(n: int) -> int := { if n = 0 { return 1 } else { return n * factorial(n - 1) } }");
       
   (* Nested function with access to outer scope *)
   check bool "nested function scope access"
@@ -235,7 +235,7 @@ let test_return_statements () =
   check bool "return in if statement"
     true
     (analyze_success 
-      "test(x: int) -> int := { if x > 0 then { return 1 } else { return -1 } }");
+      "test(x: int) -> int := { if x > 0 { return 1 } else { return -1 } }");
     
   (* Test return in nested block *)
   check bool "return in nested block"
@@ -247,7 +247,7 @@ let test_return_statements () =
   check bool "early return with code after"
     true
     (analyze_success 
-      "test(x: int) -> int := { if x > 10 then { return x } print \"only for x <= 10\"; return 0 }");
+      "test(x: int) -> int := { if x > 10 { return x } print \"only for x <= 10\"; return 0 }");
     
   (* Test return type checking *)
   check bool "return type checking"
@@ -259,7 +259,7 @@ let test_return_statements () =
   check bool "return in while loop"
     true
     (analyze_success 
-      "countdown(n: int) -> int := { while n > 0 do { if n = 5 then { return 5 } n := n - 1 }; return 0 }");
+      "countdown(n: int) -> int := { while n > 0 { if n = 5 { return 5 } n := n - 1 }; return 0 }");
       
   (* Test return outside function - since HIR handles type checking, the semant test might not check this *)
   (* We're only testing the parsing phase with analyze_success, not semantic validation *)
@@ -333,11 +333,11 @@ let test_array_semantics () =
 let test_array_with_if () =
   check bool "array with if statement"
     true
-    (analyze_success "arr: int[] := [1, 2, 3]; if true then { arr[0] := 42 } else { arr[0] := 21 }");
+    (analyze_success "arr: int[] := [1, 2, 3]; if true { arr[0] := 42 } else { arr[0] := 21 }");
   
   check bool "array length in if condition"
     true
-    (analyze_success "arr: int[] := [1, 2, 3]; if len(arr) > 0 then { print \"non-empty\" }")
+    (analyze_success "arr: int[] := [1, 2, 3]; if len(arr) > 0 { print \"non-empty\" }")
 
 (* Test Array Length Updates *)
 let test_array_length_update () =

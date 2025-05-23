@@ -313,15 +313,15 @@ let test_assignment_statements () =
 let test_control_flow_statements () =
   check stmt_testable "if-then statement"
     (If (Bool true, Block [Print (Int 1)], Block []))
-    (match parse_string "if true then { print 1 }" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    (match parse_string "if true { print 1 }" with Block [s] -> s | _ -> failwith "Unexpected AST");
     
   check stmt_testable "if-then-else statement"
     (If (Bool true, Block [Print (Int 1)], Block [Print (Int 2)]))
-    (match parse_string "if true then { print 1 } else { print 2 }" with Block [s] -> s | _ -> failwith "Unexpected AST");
+    (match parse_string "if true { print 1 } else { print 2 }" with Block [s] -> s | _ -> failwith "Unexpected AST");
     
   check stmt_testable "while loop"
-    (While (Bool true, Print (Int 1)))
-    (match parse_string "while true do print 1" with Block [s] -> s | _ -> failwith "Unexpected AST")
+    (While (Bool true, Block [Print (Int 1)]))
+    (match parse_string "while true { print 1 }" with Block [s] -> s | _ -> failwith "Unexpected AST")
 
 let test_function_statements () =
   check stmt_testable "function declaration with no parameters"
@@ -340,7 +340,7 @@ let test_function_statements () =
                    Block [Return (Var "a")],
                    Block [Return (Var "b")])
               ]))
-    (match parse_string "max(a: int, b: int) -> int := { if a > b then { return a } else { return b } }" 
+    (match parse_string "max(a: int, b: int) -> int := { if a > b { return a } else { return b } }" 
      with Block [s] -> s | _ -> failwith "Unexpected AST")
 
 let test_nested_functions () =
@@ -369,7 +369,7 @@ let test_nested_functions () =
                         ]);
                 Return (FunCall ("fact_tail", [Var "n"; Int 1]))
               ]))
-    (match parse_string "factorial(n: int) -> int := { fact_tail(n: int, acc: int) -> int := { if n = 0 then { return acc } else { return fact_tail(n - 1, n * acc) } }; return fact_tail(n, 1) }" 
+    (match parse_string "factorial(n: int) -> int := { fact_tail(n: int, acc: int) -> int := { if n = 0 { return acc } else { return fact_tail(n - 1, n * acc) } }; return fact_tail(n, 1) }" 
      with Block [s] -> s | _ -> failwith "Unexpected AST")
 
 let test_complex_statements () =
@@ -392,7 +392,7 @@ let test_complex_statements () =
                Assign ("x", Binop (Sub, Var "x", Int 1))
              ])
     ])
-    (parse_string "x: int := 10; while x > 0 do { print x; x := x - 1 }")
+    (parse_string "x: int := 10; while x > 0 { print x; x := x - 1 }")
 
 (* Test for operator precedence *)
 let test_operator_precedence () =
@@ -422,7 +422,7 @@ let test_complete_programs () =
               ]);
       Print (FunCall ("fibonacci", [Int 10]))
     ])
-    (parse_string "fibonacci(n: int) -> int := { if n <= 1 then { return n } else { return fibonacci(n - 1) + fibonacci(n - 2) } }; print fibonacci(10)");
+    (parse_string "fibonacci(n: int) -> int := { if n <= 1 { return n } else { return fibonacci(n - 1) + fibonacci(n - 2) } }; print fibonacci(10)");
     
   check stmt_testable "factorial function with while loop"
     (Block [
@@ -438,7 +438,7 @@ let test_complete_programs () =
               ]);
       Print (FunCall ("factorial", [Int 5]))
     ])
-    (parse_string "factorial(n: int) -> int := { result: int := 1; while n > 0 do { result := result * n; n := n - 1 }; return result }; print factorial(5)")
+    (parse_string "factorial(n: int) -> int := { result: int := 1; while n > 0 { result := result * n; n := n - 1 }; return result }; print factorial(5)")
 
 let test_array_put_pop () =
   (* ArrayPut tests - put(array, value) *)

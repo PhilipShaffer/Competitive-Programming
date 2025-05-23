@@ -30,11 +30,11 @@ entry:
   br i1 %ifcond, label %then, label %else
 
 then:                                             ; preds = %entry
-  %printf_call = call i32 (ptr, ...) @printf(ptr @fmt_int, i64 300)
+  %printf_call = call i32 (ptr, ...) @printf(ptr @fmt_int, i64 3)
   br label %ifcont
 
 else:                                             ; preds = %entry
-  %printf_call3 = call i32 (ptr, ...) @printf(ptr @fmt_int.1, i64 400)
+  %printf_call3 = call i32 (ptr, ...) @printf(ptr @fmt_int.1, i64 4)
   br label %ifcont
 
 ifcont:                                           ; preds = %else, %then
