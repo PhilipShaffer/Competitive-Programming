@@ -20,13 +20,11 @@ let parse_string s =
 (* Helper to parse a string, convert to HIR, and then to LLVM IR *)
 let parse_to_llvm s =
   let ast = parse_string s in
-  let hir = analyze_stmt [] ast in
+  let hir = analyze_program ast in
   codegen_hir hir
 
-(* Reset the symbol counter before each test *)
-let reset_symbols () =
-  Semant.symbol_counter := 0;
-  Hashtbl.clear Semant.sym_table_ids
+(* ID context is now created fresh for each analysis *)
+let reset_symbols () = ()
 
 (* Helper to search for a function in the module *)
 let find_function_in_module m name =

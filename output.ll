@@ -21,11 +21,10 @@ entry:
   store double 2.000000e+00, ptr %var_4, align 8
   store double 3.000000e+00, ptr %var_5, align 8
   %var_tmp = load double, ptr %var_4, align 8
-  %var_tmp1 = load double, ptr %var_5, align 8
-  %calltmp = call double @fun_0(double %var_tmp, double %var_tmp1)
+  %calltmp = call double @fun_0(double 7.000000e+00, double %var_tmp)
   store double %calltmp, ptr %var_6, align 8
-  %var_tmp2 = load double, ptr %var_6, align 8
-  %fcmp_tmp = fcmp ogt double %var_tmp2, 4.000000e+00
+  %var_tmp1 = load double, ptr %var_6, align 8
+  %fcmp_tmp = fcmp ogt double %var_tmp1, 4.000000e+00
   %ifcond = icmp ne i1 %fcmp_tmp, false
   br i1 %ifcond, label %then, label %else
 
@@ -34,7 +33,7 @@ then:                                             ; preds = %entry
   br label %ifcont
 
 else:                                             ; preds = %entry
-  %printf_call3 = call i32 (ptr, ...) @printf(ptr @fmt_int.1, i64 4)
+  %printf_call2 = call i32 (ptr, ...) @printf(ptr @fmt_int.1, i64 4)
   br label %ifcont
 
 ifcont:                                           ; preds = %else, %then

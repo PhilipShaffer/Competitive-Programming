@@ -127,7 +127,7 @@ let () =
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
   try
     let ast = Parser.main Lexer.read lexbuf in
-    let hir = Semant.analyze_stmt [StdHashtbl.create 32] ast in
+    let hir = Semant.analyze_program ast in
     Stdlib.print_endline "HIR generated successfully!";
     Stdlib.print_endline (pp_hir_stmt hir);
 

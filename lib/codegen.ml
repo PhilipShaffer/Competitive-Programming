@@ -450,14 +450,9 @@ and codegen_stmt (tables : symbol_tables) (stmt : hir_stmt) : llvalue option (* 
           | At_end _ -> builder_at_end context entry_bb
           | Before first_instr -> builder_before context first_instr
       in
+      (* For arrays, always use pointer to heap-allocated array structure *)
       let llvm_ty = match ty with
-        | ArrayType elem_ty -> 
-            let elem_llvm_ty = llvm_type_of elem_ty in
-            let length = match expr with
-              | HArrayLit (elems, _) -> List.length elems
-              | _ -> failwith "Array declaration must be initialized with array literal"
-            in
-            array_type elem_llvm_ty length
+        | ArrayType _ -> pointer_type context (* Pointer to heap-allocated array *)
         | _ -> llvm_type_of ty
       in
       let ptr = build_alloca llvm_ty ("var_" ^ Int.to_string sym) entry_builder in

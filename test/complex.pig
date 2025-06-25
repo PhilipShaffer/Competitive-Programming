@@ -1,11 +1,11 @@
-f(x: float, y: float) -> float := {
-  z : float := x - y;
+f(a: float, b: float) -> float := {
+  z : float := a - b;
   return z
 };
 
 a : float := 2.0;
 b : float := 3.0;
-c : float := f(a, b);
+c : float := f(7.0, a);
 if c > 4.0 {
   print 3
 } else {

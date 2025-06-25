@@ -19,7 +19,7 @@ let parse_string s =
 let analyze_success s =
   let ast = parse_string s in
   try
-    let _hir = analyze_stmt [] ast in
+    let _hir = analyze_program ast in
     true
   with
   | Semantic_error _ -> false
@@ -28,7 +28,7 @@ let analyze_success s =
 let analyze_error s expected_error =
   let ast = parse_string s in
   try
-    let _hir = analyze_stmt [] ast in
+    let _hir = analyze_program ast in
     false (* No error occurred when one was expected *)
   with
   | Semantic_error msg -> 
@@ -65,9 +65,7 @@ let test_variable_declaration () =
     (analyze_error "x: int := \"hello\"" "Type mismatch")
 
 let test_variable_scoping () =
-  (* Clear the symbol table between tests *)
-  symbol_counter := 0;
-  Hashtbl.clear sym_table_ids;
+  (* ID context is now created fresh for each analysis *)
 
   (* Variables in nested scopes *)
   check bool "nested scope access"
@@ -177,9 +175,7 @@ let test_type_casting () =
 
 (* Function Tests *)
 let test_functions () =
-  (* Clear the symbol table between tests *)
-  symbol_counter := 0;
-  Hashtbl.clear sym_table_ids;
+  (* ID context is now created fresh for each analysis *)
   
   (* Basic function declaration and call *)
   check bool "function declaration and call"
@@ -215,9 +211,7 @@ let test_functions () =
 
 (* Return Statement Tests *)
 let test_return_statements () =
-  (* Clear the symbol table between tests *)
-  symbol_counter := 0;
-  Hashtbl.clear sym_table_ids;
+  (* ID context is now created fresh for each analysis *)
   
   (* Test return in function body - with empty parameter list *)
   check bool "basic return statement with empty params"

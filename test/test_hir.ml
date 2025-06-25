@@ -20,7 +20,7 @@ let parse_string s =
 (* Helper to parse a string and convert to HIR *)
 let parse_to_hir s =
   let ast = parse_string s in
-  analyze_stmt [] ast
+  analyze_program ast
 
 (* Create equality function for value_type *)
 let equal_value_type t1 t2 = t1 = t2
@@ -28,10 +28,8 @@ let equal_value_type t1 t2 = t1 = t2
 let value_type_testable =
   testable (fun ppf t -> Fmt.pf ppf "%s" (pp_ty t)) equal_value_type
 
-(* Reset the symbol counter before each test *)
-let reset_symbols () =
-  Semant.symbol_counter := 0;
-  Hashtbl.clear Semant.sym_table_ids
+(* ID context is now created fresh for each analysis *)
+let reset_symbols () = ()
 
 (* Test type_of_expr function *)
 let test_type_of_expr () =
